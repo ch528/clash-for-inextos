@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -24,6 +25,13 @@ var mihomoCredentialPattern = regexp.MustCompile(`(?i)\b(password|passwd|token|s
 var mihomoAuthorizationPattern = regexp.MustCompile(`(?im)\bauthorization\s*[:=]\s*[^\r\n]+`)
 
 const subscriptionRetryDelay = 15 * time.Minute
+
+var packagedProxyIcons = map[string]struct{}{
+	"AI.png": {}, "Advertising.png": {}, "Auto.png": {}, "Claude.png": {},
+	"Disney.png": {}, "ForeignMedia.png": {}, "GitHub.png": {}, "Linkedin.png": {},
+	"Netflix.png": {}, "Telegram.png": {}, "TikTok.png": {}, "WiFi.png": {},
+	"World_Map.png": {}, "YouTube.png": {}, "bilibili_3.png": {}, "chatgpt.png": {}, "uhd.png": {},
+}
 
 func subscriptionNextUpdate(item subscriptionRecord, now time.Time) *time.Time {
 	if !item.Enabled || item.AutoUpdateHours <= 0 {
@@ -105,6 +113,7 @@ func renderSubscription(body []byte, state RuntimeState, secret string) ([]byte,
 		safe["rule-providers"] = providers
 	}
 	if groups, ok := source["proxy-groups"].([]any); ok && len(groups) > 0 {
+		normalizePackagedProxyIcons(groups)
 		safe["proxy-groups"] = groups
 		if len(rules) > 0 {
 			safe["rules"] = rules
@@ -121,6 +130,27 @@ func renderSubscription(body []byte, state RuntimeState, secret string) ([]byte,
 	}
 	result, err := yaml.Marshal(safe)
 	return result, len(proxies), err
+}
+
+func normalizePackagedProxyIcons(groups []any) {
+	for _, raw := range groups {
+		group, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		icon, ok := group["icon"].(string)
+		if !ok {
+			continue
+		}
+		parsed, err := url.Parse(icon)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			continue
+		}
+		filename := path.Base(parsed.Path)
+		if _, packaged := packagedProxyIcons[filename]; packaged {
+			group["icon"] = "/" + filename
+		}
+	}
 }
 
 func renderRuleProviders(raw any) (map[string]any, error) {

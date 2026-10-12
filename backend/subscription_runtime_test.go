@@ -58,6 +58,57 @@ func TestRenderSubscriptionRejectsNoNodes(t *testing.T) {
 	}
 }
 
+func TestRenderSubscriptionUsesPackagedProxyIcons(t *testing.T) {
+	input := []byte(`proxies:
+  - name: Example
+    type: socks5
+    server: example.com
+    port: 1080
+proxy-groups:
+  - name: WiFi
+    type: select
+    icon: https://fastly.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/WiFi.png?raw=1
+    proxies: [Example, DIRECT]
+  - name: Custom
+    type: select
+    icon: https://icons.example/custom.png
+    proxies: [Example, DIRECT]
+  - name: Local
+    type: select
+    icon: /custom/local.png
+    proxies: [Example, DIRECT]
+`)
+	config, _, err := renderSubscription(input, RuntimeState{MixedPort: 17890, ControllerPort: 9091}, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rendered map[string]any
+	if err := yaml.Unmarshal(config, &rendered); err != nil {
+		t.Fatal(err)
+	}
+	groups, ok := rendered["proxy-groups"].([]any)
+	if !ok || len(groups) != 3 {
+		t.Fatalf("unexpected proxy groups: %#v", rendered["proxy-groups"])
+	}
+	icon := func(index int) string {
+		group, ok := groups[index].(map[string]any)
+		if !ok {
+			t.Fatalf("proxy group %d has unexpected type: %#v", index, groups[index])
+		}
+		value, _ := group["icon"].(string)
+		return value
+	}
+	if got := icon(0); got != "/WiFi.png" {
+		t.Errorf("packaged icon URL was not rewritten: %q", got)
+	}
+	if got := icon(1); got != "https://icons.example/custom.png" {
+		t.Errorf("unknown remote icon was changed: %q", got)
+	}
+	if got := icon(2); got != "/custom/local.png" {
+		t.Errorf("local icon was changed: %q", got)
+	}
+}
+
 func TestRenderSubscriptionPreservesRuleProvidersAndRules(t *testing.T) {
 	input := []byte(`proxies:
   - name: Example
