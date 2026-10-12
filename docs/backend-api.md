@@ -66,13 +66,21 @@ in a separate root-owned systemd unit so replacing/restarting the Backend does
 not kill the installer. It uses `DEBIAN_FRONTEND=noninteractive` and
 `--force-confold`, waits for the expected Debian version and local health
 endpoint, and restores the prior package if that check fails. Automatic
-rollback is covered by a local test. Live device acceptance also passed: the
-privileged updater moved the ARM64 installation from `1.0.0-35` to `1.0.0-36`;
-the published package digest matched, installation completed, and the local
-health check returned HTTP 200. The authenticated Edge Update page then reported
-`1.0.36` as the latest application release. Application settings, administrator
-state, Controller secret, and subscription data retained their pre-update
-SHA-256 hashes. No router reboot was performed. Zashboard source implementation
+rollback is covered by a local test. Live device acceptance first moved the
+ARM64 installation from `1.0.0-35` to `1.0.0-36`; the published package digest
+matched, installation completed, the local health check returned HTTP 200, and
+application settings, administrator state, Controller secret, and subscription
+data retained their pre-update SHA-256 hashes. On 2026-10-12, the authenticated
+Edge Update page detected and installed public release `1.0.37` (`1.0.0-37`).
+Its SHA-256 matched the GitHub Release API digest. The About page showed
+`1.0.37`, and a fresh update check reported `1.0.37` as both current and latest.
+Mihomo remained running, the saved `主订阅` remained active with 67 nodes, and
+network capture remained disabled. The completion banner still showed the
+previous text `应用已更新；管理页面正在恢复`; the installed version and latest
+release were confirmed independently in About and the Update page. The updater
+unit continues running from the pre-update process while replacing the package,
+so the completion text should be rechecked after the next update. No router
+reboot was performed. Zashboard source implementation
 preserves the bundled panel and retains immutable release directories under the
 app data directory. Invalid candidates do not change the active version record;
 ZIP traversal, duplicate paths, symlinks, special files, excessive extraction
