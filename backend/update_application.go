@@ -324,7 +324,7 @@ func runApplicationUpdateService() error {
 		_ = writeApplicationUpdateStatus(appUpdateDirectory, status)
 		return installErr
 	}
-	status.State, status.Message = "succeeded", "应用已更新；管理页面正在恢复"
+	status.State, status.Message = "succeeded", "更新完成，当前版本 "+targetVersion
 	return writeApplicationUpdateStatus(appUpdateDirectory, status)
 }
 
