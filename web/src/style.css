@@ -1524,7 +1524,7 @@ html[data-theme="dark"] .dashboard-frame { border-color:#2a3a50 }
   max-width:920px
 }
 .about-content .license-panel {
-  max-width:360px
+  max-width:none
 }
 .license-panel p {
   margin:0
