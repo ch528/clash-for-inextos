@@ -69,9 +69,10 @@ endpoint, and restores the prior package if that check fails. Automatic
 rollback is covered by a local test. Live device acceptance also passed: the
 privileged updater moved the ARM64 installation from `1.0.0-35` to `1.0.0-36`;
 the published package digest matched, installation completed, and the local
-health check returned HTTP 200. Application settings, administrator state,
-Controller secret, and subscription data retained their pre-update SHA-256
-hashes. No router reboot was performed. Zashboard source implementation
+health check returned HTTP 200. The authenticated Edge Update page then reported
+`1.0.36` as the latest application release. Application settings, administrator
+state, Controller secret, and subscription data retained their pre-update
+SHA-256 hashes. No router reboot was performed. Zashboard source implementation
 preserves the bundled panel and retains immutable release directories under the
 app data directory. Invalid candidates do not change the active version record;
 ZIP traversal, duplicate paths, symlinks, special files, excessive extraction
