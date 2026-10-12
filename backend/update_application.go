@@ -329,12 +329,8 @@ func runApplicationUpdateService() error {
 }
 
 func applicationNetworkCaptureActive() bool {
-	if runtimeTunEnabled() {
-		return true
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	return exec.CommandContext(ctx, "/usr/bin/systemctl", "is-active", "--quiet", mihomoUnit).Run() == nil
+	state, err := loadRuntimeState(stateDir)
+	return err != nil || networkCaptureActive(state)
 }
 
 func ensureApplicationUpdateDirectory(directory string) error {
