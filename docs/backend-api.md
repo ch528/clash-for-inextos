@@ -66,13 +66,18 @@ in a separate root-owned systemd unit so replacing/restarting the Backend does
 not kill the installer. It uses `DEBIAN_FRONTEND=noninteractive` and
 `--force-confold`, waits for the expected Debian version and local health
 endpoint, and restores the prior package if that check fails. Automatic
-rollback is covered by a local test; the live package update remains subject
-to device acceptance. Zashboard source implementation preserves the bundled panel and
-retains immutable release directories under the app data directory. Invalid
-candidates do not change the active version record; ZIP traversal, duplicate
-paths, symlinks, special files, excessive extraction and missing entry resources
-are rejected. Old hashed asset requests can use the previous version during a
-browser transition. Zashboard device/browser acceptance and Geo installation
+rollback is covered by a local test. Live device acceptance also passed: the
+privileged updater moved the ARM64 installation from `1.0.0-35` to `1.0.0-36`;
+the published package digest matched, installation completed, and the local
+health check returned HTTP 200. Application settings, administrator state,
+Controller secret, and subscription data retained their pre-update SHA-256
+hashes. No router reboot was performed. Zashboard source implementation
+preserves the bundled panel and retains immutable release directories under the
+app data directory. Invalid candidates do not change the active version record;
+ZIP traversal, duplicate paths, symlinks, special files, excessive extraction
+and missing entry resources are rejected. Old hashed asset requests can use the
+previous version during a browser transition. Mihomo and Zashboard live
+update/rollback acceptance, Zashboard browser acceptance, and Geo installation
 remain pending.
 
 ## Subscriptions
