@@ -1,0 +1,49 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  configure)
+    if ! getent group inextos-clash >/dev/null 2>&1; then
+      groupadd --system inextos-clash
+    fi
+    if ! getent passwd inextos-clash >/dev/null 2>&1; then
+      useradd --system --gid inextos-clash --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin inextos-clash
+    fi
+    install -d -o root -g root -m 0755 /opt/inextos-clash /opt/inextos-clash/bin /opt/inextos-clash/web /opt/inextos-clash/upstream
+    install -d -o root -g inextos-clash -m 0750 /etc/inextos-clash /etc/inextos-clash/mihomo
+    chown root:inextos-clash /etc/inextos-clash/app.yaml
+    chmod 0640 /etc/inextos-clash/app.yaml
+    install -d -o inextos-clash -g inextos-clash -m 0750 /var/lib/inextos-clash /var/lib/inextos-clash/state /var/lib/inextos-clash/subscriptions /var/lib/inextos-clash/dashboard /var/lib/inextos-clash/mihomo /run/inextos-clash
+    systemctl daemon-reload
+    systemctl enable inextos-clash-helper.service >/dev/null
+    if systemctl is-active --quiet inextos-clash-helper.service; then
+      systemctl try-restart inextos-clash-helper.service
+    else
+      systemctl start inextos-clash-helper.service
+    fi
+    systemctl enable inextos-clash.service >/dev/null
+    if systemctl is-active --quiet inextos-clash.service; then
+      systemctl try-restart inextos-clash.service
+    else
+      systemctl start inextos-clash.service
+    fi
+    attempt=0
+    ports_output=""
+    while [ "$attempt" -lt 10 ]; do
+      ports_output=$(/usr/bin/inextos-clash ports 2>&1 || true)
+      case "$ports_output" in
+        *"Local URL:"*) break ;;
+      esac
+      sleep 1
+      attempt=$((attempt + 1))
+    done
+    echo "Clash for iNextOS installed."
+    printf '%s\n' "$ports_output"
+    echo "LAN setup is available directly. Public HTTPS setup: sudo inextos-clash setup-open"
+    if systemctl is-active --quiet inextos-clash-mihomo.service; then
+      systemctl restart inextos-clash-mihomo.service
+    fi
+    ;;
+esac
+
+exit 0

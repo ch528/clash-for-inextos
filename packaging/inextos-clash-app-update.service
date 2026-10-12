@@ -1,0 +1,23 @@
+[Unit]
+Description=Clash for iNextOS verified application update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/inextos-clash/bin/inextos-clash-server app-update-run
+TimeoutStartSec=20min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/inextos-clash /etc/inextos-clash /etc/systemd/system /usr/bin /usr/lib/systemd/system /usr/share/doc/inextos-clash /usr/share/icons/hicolor /var/lib/inextos-clash-app-update
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK

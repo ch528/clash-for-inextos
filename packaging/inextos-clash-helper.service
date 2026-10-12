@@ -1,0 +1,30 @@
+[Unit]
+Description=Clash for iNextOS fixed privileged helper
+After=local-fs.target
+Before=inextos-clash.service
+
+[Service]
+Type=simple
+User=root
+Group=inextos-clash
+ExecStart=/opt/inextos-clash/bin/inextos-clash-server helperd
+Restart=on-failure
+RestartSec=2
+UMask=0007
+RuntimeDirectory=inextos-clash-helper
+RuntimeDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/run/inextos-clash-helper /run/inextos-clash /var/lib/inextos-clash/state /opt/inextos-clash/bin
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_CHOWN
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Restore the previous Clash for iNextOS network configuration
+
+[Service]
+Type=oneshot
+User=root
+Group=inextos-clash
+ExecStart=/opt/inextos-clash/bin/inextos-clash-server helper-action network-rollback
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/run/inextos-clash /var/lib/inextos-clash/state
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_CHOWN
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

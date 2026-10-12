@@ -1,0 +1,34 @@
+[Unit]
+Description=Clash for iNextOS management backend and Mihomo
+After=network-online.target
+Wants=network-online.target
+After=inextos-clash-helper.service
+Wants=inextos-clash-helper.service
+
+[Service]
+Type=simple
+User=inextos-clash
+Group=inextos-clash
+ExecStart=/opt/inextos-clash/bin/inextos-clash-server --config /etc/inextos-clash/app.yaml
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+UMask=0077
+RuntimeDirectory=inextos-clash
+RuntimeDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/inextos-clash /run/inextos-clash
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

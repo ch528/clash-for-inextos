@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  purge)
+    systemctl stop inextos-clash-network-rollback.timer >/dev/null 2>&1 || true
+    systemctl stop inextos-clash-mihomo.service >/dev/null 2>&1 || true
+    systemctl disable --now inextos-clash-helper.service >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    rm -rf /opt/inextos-clash /etc/inextos-clash /var/lib/inextos-clash /run/inextos-clash
+    rm -rf /var/lib/inextos-clash-app-update
+    if getent passwd inextos-clash >/dev/null 2>&1; then
+      userdel inextos-clash
+    fi
+    if getent group inextos-clash >/dev/null 2>&1; then
+      groupdel inextos-clash
+    fi
+    ;;
+esac
+
+exit 0

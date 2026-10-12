@@ -1,0 +1,9 @@
+Package: inextos-clash
+Version: 0.2.0
+Section: net
+Priority: optional
+Architecture: arm64
+Maintainer: Clash for iNextOS maintainers
+Depends: systemd
+Description: Authenticated Mihomo management app for iNextOS
+ A standalone iNextOS app with subscriptions, authenticated Zashboard, and isolated TUN support.

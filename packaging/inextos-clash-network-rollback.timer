@@ -1,0 +1,10 @@
+[Unit]
+Description=Automatic four minute TUN safety rollback
+
+[Timer]
+OnActiveSec=4min
+AccuracySec=1s
+Unit=inextos-clash-network-rollback.service
+
+[Install]
+WantedBy=timers.target

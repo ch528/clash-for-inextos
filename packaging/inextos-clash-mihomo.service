@@ -1,0 +1,31 @@
+[Unit]
+Description=Clash for iNextOS Mihomo TUN core
+After=network-online.target inextos-clash-helper.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=inextos-clash
+Group=inextos-clash
+ExecStart=/opt/inextos-clash/bin/mihomo -f /run/inextos-clash/mihomo.yaml -d /var/lib/inextos-clash/mihomo
+Restart=no
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/inextos-clash/mihomo /run/inextos-clash
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+DevicePolicy=closed
+DeviceAllow=/dev/net/tun rw
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target
