@@ -48,6 +48,24 @@ func defaultDNSSettings() DNSSettings {
 }
 
 func normalizeNetworkSettings(state *RuntimeState) error {
+	if state.TunMTU == 0 {
+		state.TunMTU = 1500
+	}
+	if state.TunMTU < 576 || state.TunMTU > 9000 {
+		return errors.New("TUN MTU must be between 576 and 9000")
+	}
+	if state.TunIPv6 && state.TunMTU < 1280 {
+		return errors.New("TUN MTU must be at least 1280 when IPv6 routing is enabled")
+	}
+	if (state.TunAutoRedirect || state.TunStrictRoute) && !state.TunAutoRoute {
+		return errors.New("TUN Auto Redirect and Strict Route require Auto Route")
+	}
+	if (state.LANProxy.Enabled || state.DNS.Enabled) && !state.TunAutoRoute {
+		return errors.New("LAN proxy and DNS takeover require TUN Auto Route")
+	}
+	if state.TunEnabled && state.TunAutoRoute && !state.TunIPv4 && !state.TunIPv6 {
+		return errors.New("enable IPv4 or IPv6 routes before enabling TUN Auto Route")
+	}
 	if state.LANProxy.Mode == "" {
 		state.LANProxy.Mode = "all"
 	}
@@ -193,8 +211,12 @@ func networkDNSRequired(state RuntimeState) bool {
 func sameNetworkSettings(a, b RuntimeState) bool {
 	return a.TunEnabled == b.TunEnabled &&
 		a.TunStack == b.TunStack &&
+		a.TunIPv4 == b.TunIPv4 &&
 		a.TunIPv6 == b.TunIPv6 &&
+		a.TunMTU == b.TunMTU &&
+		a.TunAutoRoute == b.TunAutoRoute &&
 		a.TunAutoRedirect == b.TunAutoRedirect &&
+		a.TunStrictRoute == b.TunStrictRoute &&
 		reflect.DeepEqual(a.LANProxy, b.LANProxy) &&
 		reflect.DeepEqual(a.DNS, b.DNS)
 }
@@ -224,8 +246,19 @@ func networkTunnelConfig(state RuntimeState) map[string]any {
 		stack = "system"
 	}
 	tun := map[string]any{
-		"enable": true, "device": "mihomo0", "stack": stack, "mtu": 1500,
-		"auto-route": true, "auto-detect-interface": true, "strict-route": false,
+		"enable": true, "device": "mihomo0", "stack": stack, "mtu": state.TunMTU,
+		"auto-route": state.TunAutoRoute, "auto-detect-interface": true, "strict-route": state.TunStrictRoute,
+	}
+	if state.TunAutoRoute {
+		var routes []string
+		if state.TunIPv4 {
+			routes = append(routes, "0.0.0.0/1", "128.0.0.0/1")
+		}
+		if state.TunIPv6 {
+			routes = append(routes, "::/1", "8000::/1")
+			tun["iproute2-rule-index"] = 8700
+		}
+		tun["route-address"] = routes
 	}
 	if state.TunAutoRedirect || state.LANProxy.Enabled || state.DNS.Enabled {
 		tun["auto-redirect"] = true

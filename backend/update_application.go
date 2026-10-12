@@ -84,10 +84,26 @@ func debianPackageVersion(appVersion string) (string, bool) {
 		return "", false
 	}
 	patch, err := strconv.Atoi(match[1])
-	if err != nil || patch < 1 || strconv.Itoa(patch) != match[1] {
+	if err != nil || patch < 0 || strconv.Itoa(patch) != match[1] {
 		return "", false
 	}
+	if patch == 0 {
+		return "1.0.0", true
+	}
 	return "1.0.0-" + strconv.Itoa(patch), true
+}
+
+func applicationVersionRelation(candidate, current string) (int, bool) {
+	if _, ok := debianPackageVersion(candidate); !ok {
+		return 0, false
+	}
+	if _, ok := debianPackageVersion(current); !ok {
+		return 0, false
+	}
+	if candidate == "1.0.0" && current != "1.0.0" {
+		return 1, true
+	}
+	return versionRelation(candidate, current)
 }
 
 func validSHA256Digest(digest string) bool {
@@ -264,8 +280,16 @@ func runApplicationUpdateService() error {
 	if err != nil {
 		return fail("无法验证应用发布包", err)
 	}
-	if newer, valid := versionIsNewer(targetVersion, appVersion); !valid || !newer {
-		status.State, status.Target, status.Message = "no_update", targetVersion, "当前已是最新版本"
+	relation, valid := applicationVersionRelation(targetVersion, appVersion)
+	if !valid {
+		return fail("无法比较应用版本", errors.New("application version is invalid"))
+	}
+	if relation <= 0 {
+		message := "当前已是最新版本"
+		if relation < 0 {
+			message = "本机版本高于当前公开稳定版"
+		}
+		status.State, status.Target, status.Message = "no_update", targetVersion, message
 		return writeApplicationUpdateStatus(appUpdateDirectory, status)
 	}
 	status.Target, status.State, status.Message = targetVersion, "downloading", "正在下载并验证更新包"
@@ -287,25 +311,13 @@ func runApplicationUpdateService() error {
 	if err := verifyAppPackage(ctx, candidatePath, targetVersion); err != nil {
 		return fail("更新包与发布版本不匹配", err)
 	}
-	previousRelease, err := fetchLatestRelease(ctx, client, "https://api.github.com/repos/"+appReleaseRepository+"/releases/tags/v"+appVersion)
-	if err != nil {
-		return fail("无法准备当前版本的回滚包", err)
-	}
-	previousAsset, previousVersion, err := applicationReleaseAsset(previousRelease)
-	if err != nil || previousVersion != appVersion {
-		return fail("无法准备当前版本的回滚包", errors.New("current release package is unavailable"))
-	}
 	status.Message = "正在下载当前版本作为回滚保护"
 	if err := writeApplicationUpdateStatus(appUpdateDirectory, status); err != nil {
 		return err
 	}
-	previous, err := downloadApplicationPackage(ctx, client, previousAsset)
-	if err != nil {
-		return fail("无法准备当前版本的回滚包", err)
-	}
 	previousPath := filepath.Join(appUpdateDirectory, "previous.deb")
-	if err := atomicWrite(previousPath, previous, 0600); err != nil {
-		return fail("无法保存当前版本的回滚包", err)
+	if err := preparePreviousApplicationPackage(ctx, client, appVersion, appUpdateDirectory, previousPath); err != nil {
+		return fail("无法准备当前版本的回滚包", err)
 	}
 	if err := verifyAppPackage(ctx, previousPath, appVersion); err != nil {
 		return fail("当前版本回滚包校验失败", err)
@@ -326,6 +338,37 @@ func runApplicationUpdateService() error {
 	}
 	status.State, status.Message = "succeeded", "更新完成，当前版本 "+targetVersion
 	return writeApplicationUpdateStatus(appUpdateDirectory, status)
+}
+
+func preparePreviousApplicationPackage(ctx context.Context, client *http.Client, appVersion, directory, previousPath string) error {
+	stagedPath := filepath.Join(directory, "rollback-source.deb")
+	info, err := os.Lstat(stagedPath)
+	if err == nil {
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0022 != 0 || info.Size() <= 0 || info.Size() > maxAppPackageBytes {
+			return errors.New("staged rollback package is unsafe")
+		}
+		data, err := os.ReadFile(stagedPath)
+		if err != nil || int64(len(data)) != info.Size() {
+			return errors.New("staged rollback package is unavailable")
+		}
+		return atomicWrite(previousPath, data, 0600)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return errors.New("staged rollback package is unavailable")
+	}
+	previousRelease, err := fetchLatestRelease(ctx, client, applicationReleaseURL("v"+appVersion))
+	if err != nil {
+		return err
+	}
+	previousAsset, previousVersion, err := applicationReleaseAsset(previousRelease)
+	if err != nil || previousVersion != appVersion {
+		return errors.New("current release package is unavailable")
+	}
+	previous, err := downloadApplicationPackage(ctx, client, previousAsset)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(previousPath, previous, 0600)
 }
 
 func applicationNetworkCaptureActive() bool {
@@ -356,7 +399,7 @@ func installedDebianVersion(ctx context.Context) (string, error) {
 }
 
 func installDebianPackage(ctx context.Context, path string) error {
-	cmd := exec.CommandContext(ctx, "/usr/bin/dpkg", "--force-confold", "--install", path)
+	cmd := exec.CommandContext(ctx, "/usr/bin/dpkg", "--force-confold", "--force-downgrade", "--install", path)
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	output, err := cmd.CombinedOutput()
 	if err != nil {

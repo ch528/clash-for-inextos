@@ -12,6 +12,12 @@ Clash for iNextOS manages Mihomo's lifecycle, subscriptions, and device level ne
 - 设置: administrator account, browser appearance, portable backup/restore, public IPv6 and HTTPS certificate status, advanced local ports, diagnostics, support-bundle download, and recent system events.
 - 关于: component versions, runtime details, and licenses.
 
+Subscription downloads use the active loopback Mihomo proxy first when it is
+running in rule or global mode, then try a direct request. In rule mode, HTTP
+rule providers without an explicit `proxy` use the profile's final proxy policy
+group; an explicitly configured provider proxy is preserved. Public-address
+validation remains enabled for subscription and rule-provider URLs.
+
 ## Security boundary
 
 The Web backend runs as `inextos-clash` with an empty capability set. The Mihomo TUN service is a separate systemd unit with `CAP_NET_ADMIN`; it is started only through the fixed root helper actions. Controller and Mixed Port stay bound to loopback. The controller secret remains server side.

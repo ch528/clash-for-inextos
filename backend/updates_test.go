@@ -32,6 +32,25 @@ func TestVersionIsNewer(t *testing.T) {
 	}
 }
 
+func TestVersionRelation(t *testing.T) {
+	for _, test := range []struct {
+		candidate string
+		current   string
+		want      int
+		valid     bool
+	}{
+		{candidate: "1.0.46", current: "1.0.45", want: 1, valid: true},
+		{candidate: "1.0.45", current: "1.0.45", want: 0, valid: true},
+		{candidate: "1.0.44", current: "1.0.45", want: -1, valid: true},
+		{candidate: "latest", current: "1.0.45", valid: false},
+	} {
+		got, valid := versionRelation(test.candidate, test.current)
+		if got != test.want || valid != test.valid {
+			t.Errorf("versionRelation(%q, %q) = (%d, %v), want (%d, %v)", test.candidate, test.current, got, valid, test.want, test.valid)
+		}
+	}
+}
+
 func TestGeoDataStatusFollowsActiveRules(t *testing.T) {
 	dir := t.TempDir()
 	config := filepath.Join(dir, "mihomo.yaml")

@@ -10,3 +10,5 @@ Create the shortcut through the signed-in iNextOS Desktop UI. Do not edit the Ro
 - **Open Mode:** Choose `桌面内` to open an internal desktop window.
 
 The public HTTPS entry on port `8844` is a separate access path and remains independent from the internal desktop shortcut.
+
+Verified on 2026-10-13 through the iNextOS desktop: clicking the Clash shortcut opens the app in an internal desktop window. This uses the existing Shortcut/Open Mode setting and does not edit the RoceOS SQLite database. The public IPv6 HTTPS entry on `:8844` remained reachable after reinstall.

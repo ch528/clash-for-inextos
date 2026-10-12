@@ -80,7 +80,7 @@ func renderSubscription(body []byte, state RuntimeState, secret string) ([]byte,
 		}
 		names = append(names, name)
 	}
-	providers, err := renderRuleProviders(source["rule-providers"])
+	providers, err := renderRuleProviders(source["rule-providers"], defaultRuleProviderProxy(source, state.Mode))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -123,7 +123,40 @@ func renderSubscription(body []byte, state RuntimeState, secret string) ([]byte,
 	return result, len(proxies), err
 }
 
-func renderRuleProviders(raw any) (map[string]any, error) {
+func defaultRuleProviderProxy(source map[string]any, mode string) string {
+	if mode != "rule" {
+		return ""
+	}
+	groups := make(map[string]struct{})
+	if raw, ok := source["proxy-groups"].([]any); ok {
+		for _, item := range raw {
+			if group, ok := item.(map[string]any); ok {
+				if name, ok := group["name"].(string); ok && name != "" {
+					groups[name] = struct{}{}
+				}
+			}
+		}
+	}
+	rules, _ := source["rules"].([]any)
+	for _, raw := range rules {
+		line, ok := raw.(string)
+		if !ok {
+			continue
+		}
+		fields := strings.Split(line, ",")
+		if len(fields) < 2 || (strings.ToUpper(strings.TrimSpace(fields[0])) != "MATCH" && strings.ToUpper(strings.TrimSpace(fields[0])) != "FINAL") {
+			continue
+		}
+		policy := strings.TrimSpace(fields[1])
+		if _, ok := groups[policy]; ok {
+			return policy
+		}
+		return ""
+	}
+	return ""
+}
+
+func renderRuleProviders(raw any, defaultProxy string) (map[string]any, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -152,6 +185,11 @@ func renderRuleProviders(raw any) (map[string]any, error) {
 		for field, value := range provider {
 			clean[field] = value
 		}
+		if kind == "http" && defaultProxy != "" {
+			if _, exists := provider["proxy"]; !exists {
+				clean["proxy"] = defaultProxy
+			}
+		}
 		switch kind {
 		case "http":
 			providerURL, ok := provider["url"].(string)
@@ -179,6 +217,13 @@ func renderRuleProviders(raw any) (map[string]any, error) {
 		result[name] = clean
 	}
 	return result, nil
+}
+
+func mihomoSubscriptionProxyURL(state RuntimeState, processAlive bool) *url.URL {
+	if !processAlive || !state.DesiredRunning || (state.Mode != "rule" && state.Mode != "global") || state.MixedPort < 17890 || state.MixedPort > 17920 {
+		return nil
+	}
+	return &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", state.MixedPort)}
 }
 
 func safeProviderRelativePath(value string) bool {
@@ -420,7 +465,9 @@ func (a *API) performSubscriptionUpdate(id string, requestContext context.Contex
 				return subscriptionView{}, &subscriptionUpdateError{409, "subscription is disabled"}
 			}
 			ctx, cancel := context.WithTimeout(requestContext, 22*time.Second)
-			download, err := downloadSubscriptionWithUsage(ctx, items[i].URL, systemResolver{}, nil)
+			state := a.manager.RuntimeConfig()
+			proxyURL := mihomoSubscriptionProxyURL(state, a.manager.Status(ctx).ProcessAlive)
+			download, err := downloadSubscriptionWithProxyFallback(ctx, items[i].URL, systemResolver{}, nil, proxyURL)
 			if err != nil {
 				cancel()
 				items[i].Status = "download failed"
@@ -436,7 +483,7 @@ func (a *API) performSubscriptionUpdate(id string, requestContext context.Contex
 				_ = a.saveSubscriptions(items)
 				return subscriptionView{}, &subscriptionUpdateError{422, err.Error()}
 			}
-			config, count, err := renderSubscription(body, a.manager.RuntimeConfig(), a.manager.secret)
+			config, count, err := renderSubscription(body, state, a.manager.secret)
 			if err == nil {
 				err = a.testConfig(requestContext, config)
 			}

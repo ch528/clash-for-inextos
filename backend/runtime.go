@@ -24,8 +24,12 @@ type RuntimeState struct {
 	Mode             string           `json:"mode"`
 	TunEnabled       bool             `json:"tun_enabled"`
 	TunStack         string           `json:"tun_stack"`
+	TunIPv4          bool             `json:"tun_ipv4"`
 	TunIPv6          bool             `json:"tun_ipv6"`
+	TunMTU           int              `json:"tun_mtu"`
+	TunAutoRoute     bool             `json:"tun_auto_route"`
 	TunAutoRedirect  bool             `json:"tun_auto_redirect"`
+	TunStrictRoute   bool             `json:"tun_strict_route"`
 	LANProxy         LANProxySettings `json:"lan_proxy"`
 	DNS              DNSSettings      `json:"dns"`
 	TunTestConfirmed bool             `json:"tun_test_confirmed"`
@@ -60,6 +64,17 @@ func loadRuntimeState(stateDir string) (RuntimeState, error) {
 	}
 	if s.TunStack == "" {
 		s.TunStack = "system"
+	}
+	if _, ok := saved["tun_ipv4"]; !ok {
+		s.TunIPv4 = true
+		// Legacy builds always installed both address families when TUN was enabled.
+		s.TunIPv6 = true
+	}
+	if s.TunMTU == 0 {
+		s.TunMTU = 1500
+	}
+	if _, ok := saved["tun_auto_route"]; !ok {
+		s.TunAutoRoute = true
 	}
 	if s.Mode != "rule" && s.Mode != "global" && s.Mode != "direct" {
 		return RuntimeState{}, fmt.Errorf("invalid saved Mihomo mode")
@@ -135,6 +150,10 @@ func allocateNewRuntime(stateDir string, backendPort int) (RuntimeState, error) 
 	state.RestartOnFailure = true
 	state.Mode = "rule"
 	state.TunStack = "system"
+	state.TunIPv4 = true
+	state.TunIPv6 = true
+	state.TunMTU = 1500
+	state.TunAutoRoute = true
 	state.LANProxy = defaultLANProxySettings()
 	state.DNS = defaultDNSSettings()
 	state.BackendPort = firstAvailablePort(startBackendPort, endBackendPort, 0, func(port int) bool { return portAvailable(port, false) })

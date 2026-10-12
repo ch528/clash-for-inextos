@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -126,6 +127,121 @@ func TestSubscriptionDownloadSetsUserAgentAndRetriesServerErrors(t *testing.T) {
 	}
 	if hits.Load() != 2 {
 		t.Fatalf("got %d HTTP requests, want one retry", hits.Load())
+	}
+}
+
+func TestSubscriptionDownloadFallsBackToLocalMihomoProxy(t *testing.T) {
+	var hits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Host != "provider.example" || r.URL.Path != "/config" {
+			t.Errorf("proxied request target = %q%q", r.URL.Host, r.URL.Path)
+		}
+		_, _ = w.Write([]byte("proxied subscription"))
+	}))
+	defer proxy.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := testResolver(func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("93.184.216.34")}}, nil
+	})
+	proxyAddress := proxy.Listener.Addr().String()
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		if address != proxyAddress {
+			return nil, fmt.Errorf("unexpected proxy dial address %q", address)
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}
+	result, err := downloadSubscriptionWithProxyFallback(context.Background(), "http://provider.example/config", resolver, dial, proxyURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(result.Body) != "proxied subscription" || hits.Load() != 1 {
+		t.Fatalf("result=%q requests=%d", result.Body, hits.Load())
+	}
+}
+
+func TestSubscriptionProxyRejectsNonPublicDNSBeforeRequest(t *testing.T) {
+	var hits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer proxy.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := testResolver(func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("192.168.1.25")}}, nil
+	})
+	result, err := downloadSubscriptionThroughProxy(context.Background(), "http://provider.example/config", resolver, nil, proxyURL)
+	if err == nil || result.Body != nil {
+		t.Fatalf("non-public DNS answer was accepted: body=%q err=%v", result.Body, err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("proxy received %d requests for a non-public destination", hits.Load())
+	}
+}
+
+func TestSubscriptionProxyRedirectRejectsNonPublicDestination(t *testing.T) {
+	var hits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Redirect(w, r, "http://127.0.0.1:81/blocked", http.StatusFound)
+	}))
+	defer proxy.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := testResolver(func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("93.184.216.34")}}, nil
+	})
+	result, err := downloadSubscriptionThroughProxy(context.Background(), "http://provider.example/config", resolver, nil, proxyURL)
+	if err == nil || result.Body != nil {
+		t.Fatalf("redirect to loopback was accepted: body=%q err=%v", result.Body, err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("proxy received %d requests, want only the initial request", hits.Load())
+	}
+}
+
+func TestSubscriptionDownloadFallsBackToDirectWhenProxyFails(t *testing.T) {
+	var proxyHits, directHits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxyHits.Add(1)
+		http.Error(w, "proxy unavailable", http.StatusBadGateway)
+	}))
+	defer proxy.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		directHits.Add(1)
+		_, _ = w.Write([]byte("direct subscription"))
+	}))
+	defer origin.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := testResolver(func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("93.184.216.34")}}, nil
+	})
+	proxyAddress := proxy.Listener.Addr().String()
+	originAddress := origin.Listener.Addr().String()
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		if address == proxyAddress {
+			return (&net.Dialer{}).DialContext(ctx, network, address)
+		}
+		if address == "93.184.216.34:80" {
+			return (&net.Dialer{}).DialContext(ctx, network, originAddress)
+		}
+		return nil, fmt.Errorf("unexpected dial address %q", address)
+	}
+	result, err := downloadSubscriptionWithProxyFallback(context.Background(), "http://provider.example/config", resolver, dial, proxyURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(result.Body) != "direct subscription" || proxyHits.Load() != 2 || directHits.Load() != 1 {
+		t.Fatalf("result=%q proxy requests=%d direct requests=%d", result.Body, proxyHits.Load(), directHits.Load())
 	}
 }
 

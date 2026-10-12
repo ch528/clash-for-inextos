@@ -29,13 +29,13 @@ Build the frontend with pnpm:
 pnpm --dir web build
 ```
 
-Build the Debian package after the frontend build, with Go, `dpkg-deb`, and the pinned Mihomo binary available:
+Build the formal Debian package after the frontend build, with Go, `dpkg-deb`, and the pinned Mihomo binary available:
 
 ```sh
-TARGET_ARCH=arm64 MIHOMO_BIN=/path/to/mihomo PACKAGE_VERSION=1.0.0-36 packaging/build-arm64.sh
+TARGET_ARCH=arm64 MIHOMO_BIN=/path/to/mihomo PACKAGE_VERSION=1.0.0 VERSION=1.0.0 packaging/build-arm64.sh
 ```
 
-When `PACKAGE_VERSION` is `1.0.0-N` and `VERSION` is unset, the About page displays `1.0.N` (for example, package revision `1.0.0-36` displays as `1.0.36`). The package is written to `build/`. Verify the package architecture, extracted binary hashes, bundled licenses, and runtime behavior before distributing it. See [docs/INSTALL.md](docs/INSTALL.md) and [docs/UPGRADE.md](docs/UPGRADE.md).
+Development packages use `PACKAGE_VERSION=1.0.0-N`; when `VERSION` is unset, the About page displays `1.0.N` (for example, `1.0.0-45` displays as `1.0.45`). The package is written to `build/`. Verify the package architecture, extracted binary hashes, bundled licenses, and runtime behavior before distributing it. See [docs/INSTALL.md](docs/INSTALL.md) and [docs/UPGRADE.md](docs/UPGRADE.md).
 
 ## Project documentation
 

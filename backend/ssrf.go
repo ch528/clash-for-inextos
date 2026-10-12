@@ -16,6 +16,7 @@ import (
 
 const maxSubscriptionBytes = 8 << 20
 const subscriptionUserAgent = "clash-verge/v2.4.0"
+const subscriptionProxyAttemptTimeout = 8 * time.Second
 
 type ipResolver interface {
 	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
@@ -142,6 +143,10 @@ func resolvePublicWithPolicy(ctx context.Context, host string, resolver ipResolv
 }
 
 func newSubscriptionClient(resolver ipResolver, dial func(context.Context, string, string) (net.Conn, error)) *http.Client {
+	return newSubscriptionClientWithProxy(resolver, dial, nil)
+}
+
+func newSubscriptionClientWithProxy(resolver ipResolver, dial func(context.Context, string, string) (net.Conn, error), proxyURL *url.URL) *http.Client {
 	if resolver == nil {
 		resolver = systemResolver{}
 	}
@@ -149,9 +154,21 @@ func newSubscriptionClient(resolver ipResolver, dial func(context.Context, strin
 		d := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
 		dial = d.DialContext
 	}
+	var proxy func(*http.Request) (*url.URL, error)
+	if isLocalSubscriptionProxy(proxyURL) {
+		proxy = http.ProxyURL(proxyURL)
+	} else {
+		proxyURL = nil
+	}
 	transport := &http.Transport{
-		Proxy: nil,
+		Proxy: proxy,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			if proxyURL != nil {
+				if !isSubscriptionProxyAddress(address, proxyURL) {
+					return nil, errors.New("subscription proxy dial target rejected")
+				}
+				return dial(ctx, network, address)
+			}
 			host, port, err := net.SplitHostPort(address)
 			if err != nil {
 				return nil, err
@@ -178,12 +195,32 @@ func newSubscriptionClient(resolver ipResolver, dial func(context.Context, strin
 			if len(via) >= 3 {
 				return subscriptionURLValidationError{err: fmt.Errorf("too many subscription redirects")}
 			}
-			if err := validateSubscriptionURL(req.Context(), req.URL.String(), resolver); err != nil {
+			var err error
+			if proxyURL != nil {
+				err = validatePublicHTTPURL(req.Context(), req.URL.String(), resolver, true)
+			} else {
+				err = validateSubscriptionURL(req.Context(), req.URL.String(), resolver)
+			}
+			if err != nil {
 				return subscriptionURLValidationError{err: err}
 			}
 			return nil
 		},
 	}
+}
+
+func isLocalSubscriptionProxy(proxyURL *url.URL) bool {
+	if proxyURL == nil || proxyURL.Scheme != "http" || proxyURL.User != nil || proxyURL.Path != "" || proxyURL.RawQuery != "" || proxyURL.Fragment != "" {
+		return false
+	}
+	ip := net.ParseIP(proxyURL.Hostname())
+	port, err := strconv.Atoi(proxyURL.Port())
+	return ip != nil && ip.IsLoopback() && err == nil && port > 0 && port < 65536
+}
+
+func isSubscriptionProxyAddress(address string, proxyURL *url.URL) bool {
+	host, port, err := net.SplitHostPort(address)
+	return err == nil && strings.EqualFold(host, proxyURL.Hostname()) && port == proxyURL.Port()
 }
 
 type subscriptionDownloadResult struct {
@@ -203,7 +240,35 @@ func downloadSubscriptionWithUsage(ctx context.Context, raw string, resolver ipR
 	if err := validateSubscriptionURL(ctx, raw, resolver); err != nil {
 		return subscriptionDownloadResult{}, err
 	}
-	client := newSubscriptionClient(resolver, dial)
+	return downloadSubscriptionWithClient(ctx, raw, newSubscriptionClient(resolver, dial))
+}
+
+func downloadSubscriptionThroughProxy(ctx context.Context, raw string, resolver ipResolver, dial func(context.Context, string, string) (net.Conn, error), proxyURL *url.URL) (subscriptionDownloadResult, error) {
+	if resolver == nil {
+		resolver = systemResolver{}
+	}
+	if !isLocalSubscriptionProxy(proxyURL) {
+		return subscriptionDownloadResult{}, errors.New("subscription proxy is unavailable")
+	}
+	if err := validatePublicHTTPURL(ctx, raw, resolver, true); err != nil {
+		return subscriptionDownloadResult{}, err
+	}
+	return downloadSubscriptionWithClient(ctx, raw, newSubscriptionClientWithProxy(resolver, dial, proxyURL))
+}
+
+func downloadSubscriptionWithProxyFallback(ctx context.Context, raw string, resolver ipResolver, dial func(context.Context, string, string) (net.Conn, error), proxyURL *url.URL) (subscriptionDownloadResult, error) {
+	if isLocalSubscriptionProxy(proxyURL) {
+		proxyCtx, cancel := context.WithTimeout(ctx, subscriptionProxyAttemptTimeout)
+		result, err := downloadSubscriptionThroughProxy(proxyCtx, raw, resolver, dial, proxyURL)
+		cancel()
+		if err == nil {
+			return result, nil
+		}
+	}
+	return downloadSubscriptionWithUsage(ctx, raw, resolver, dial)
+}
+
+func downloadSubscriptionWithClient(ctx context.Context, raw string, client *http.Client) (subscriptionDownloadResult, error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 		if err != nil {

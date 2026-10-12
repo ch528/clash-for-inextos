@@ -24,6 +24,11 @@ func TestApplyNetworkSettingsPersistsDisabledPreferences(t *testing.T) {
 
 	state := api.manager.RuntimeConfig()
 	state.TunStack = "system"
+	state.TunIPv4 = false
+	state.TunIPv6 = true
+	state.TunMTU = 1380
+	state.TunAutoRoute = true
+	state.TunStrictRoute = true
 	state.LANProxy = LANProxySettings{Mode: "selected", Clients: []LANClientPolicy{{Name: "TV", IP: "192.168.100.22", MAC: "02:00:00:00:00:22", Action: "proxy"}}}
 	state.DNS = DNSSettings{Mode: "custom", CustomNameservers: []string{"192.168.100.1"}}
 	if err := api.applyNetworkSettings(context.Background(), state); err != nil {
@@ -36,6 +41,9 @@ func TestApplyNetworkSettingsPersistsDisabledPreferences(t *testing.T) {
 	}
 	if saved.LANProxy.Enabled || saved.DNS.Enabled || saved.LANProxy.Mode != "selected" || saved.DNS.Mode != "custom" {
 		t.Fatalf("network preferences were not saved in the disabled state: %#v", saved)
+	}
+	if saved.TunIPv4 || !saved.TunIPv6 || saved.TunMTU != 1380 || !saved.TunAutoRoute || !saved.TunStrictRoute {
+		t.Fatalf("TUN preferences were not persisted: %#v", saved)
 	}
 	config, err := os.ReadFile(api.manager.configFile)
 	if err != nil {

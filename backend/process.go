@@ -442,8 +442,12 @@ func (m *ProcessManager) SetNetworkSettings(state RuntimeState) error {
 	previous := m.state
 	m.state.TunEnabled = state.TunEnabled
 	m.state.TunStack = state.TunStack
+	m.state.TunIPv4 = state.TunIPv4
 	m.state.TunIPv6 = state.TunIPv6
+	m.state.TunMTU = state.TunMTU
+	m.state.TunAutoRoute = state.TunAutoRoute
 	m.state.TunAutoRedirect = state.TunAutoRedirect
+	m.state.TunStrictRoute = state.TunStrictRoute
 	m.state.LANProxy = state.LANProxy
 	m.state.DNS = state.DNS
 	m.state.TunTestConfirmed = state.TunTestConfirmed

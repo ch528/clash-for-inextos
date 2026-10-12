@@ -3,13 +3,11 @@
 Target: NanoPi R5S, iNextOS 2.9.5, ARM64.
 
 ```sh
-sudo apt install ./inextos-clash_1.0.0-31_arm64.deb
+sudo apt install ./inextos-clash_1.0.0_arm64.deb
 sudo inextos-clash ports
 ```
 
-The filename includes the Debian revision; substitute the revision of the package you are installing.
-
-When `VERSION` is unset, a Debian revision `1.0.0-N` is shown in About as `1.0.N` (for example, `1.0.0-31` appears as `1.0.31`).
+The formal 1.0.0 release uses Debian package version `1.0.0` and the filename above. Development builds use Debian revisions such as `1.0.0-45`, shown in About as app version `1.0.45`.
 
 The package enables the unprivileged management service and the fixed-action helper. It does not enable TUN or LAN interception by default.
 

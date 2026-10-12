@@ -51,6 +51,114 @@ proxies:
 	}
 }
 
+func TestRenderSubscriptionDownloadsHTTPRuleProvidersThroughRuleFallback(t *testing.T) {
+	input := []byte(`proxies:
+  - name: Example
+    type: socks5
+    server: example.com
+    port: 1080
+proxy-groups:
+  - name: 代理策略
+    type: select
+    proxies: [Example, DIRECT]
+rule-providers:
+  ads:
+    type: http
+    behavior: domain
+    url: https://rules.example/ads.yaml
+rules:
+  - RULE-SET,ads,REJECT
+  - MATCH,代理策略
+`)
+	config, _, err := renderSubscription(input, RuntimeState{MixedPort: 17890, ControllerPort: 9091, Mode: "rule"}, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rendered map[string]any
+	if err := yaml.Unmarshal(config, &rendered); err != nil {
+		t.Fatal(err)
+	}
+	providers := rendered["rule-providers"].(map[string]any)
+	provider := providers["ads"].(map[string]any)
+	if got := provider["proxy"]; got != "代理策略" {
+		t.Fatalf("rule provider proxy = %#v, want rule fallback group", got)
+	}
+}
+
+func TestRenderSubscriptionPreservesExplicitRuleProviderProxyAndDirectMode(t *testing.T) {
+	input := []byte(`proxies:
+  - name: Example
+    type: socks5
+    server: example.com
+    port: 1080
+proxy-groups:
+  - name: 代理策略
+    type: select
+    proxies: [Example, DIRECT]
+rule-providers:
+  explicit:
+    type: http
+    behavior: domain
+    url: https://rules.example/ads.yaml
+    proxy: DIRECT
+  implicit:
+    type: http
+    behavior: domain
+    url: https://rules.example/other.yaml
+rules:
+  - MATCH,代理策略
+`)
+	for _, tc := range []struct {
+		name         string
+		mode         string
+		wantImplicit bool
+	}{
+		{name: "rule mode", mode: "rule", wantImplicit: true},
+		{name: "direct mode", mode: "direct"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config, _, err := renderSubscription(input, RuntimeState{MixedPort: 17890, ControllerPort: 9091, Mode: tc.mode}, "secret")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var rendered map[string]any
+			if err := yaml.Unmarshal(config, &rendered); err != nil {
+				t.Fatal(err)
+			}
+			providers := rendered["rule-providers"].(map[string]any)
+			if got := providers["explicit"].(map[string]any)["proxy"]; got != "DIRECT" {
+				t.Fatalf("explicit provider proxy = %#v, want DIRECT", got)
+			}
+			got, exists := providers["implicit"].(map[string]any)["proxy"]
+			if exists != tc.wantImplicit || (exists && got != "代理策略") {
+				t.Fatalf("implicit provider proxy = %#v, exists=%v", got, exists)
+			}
+		})
+	}
+}
+
+func TestMihomoSubscriptionProxyRequiresRunningProxiedMode(t *testing.T) {
+	state := RuntimeState{MixedPort: 17890, DesiredRunning: true, Mode: "rule"}
+	if got := mihomoSubscriptionProxyURL(state, true); !isLocalSubscriptionProxy(got) {
+		t.Fatalf("proxy URL = %#v, want loopback HTTP proxy", got)
+	}
+	for _, tc := range []struct {
+		name  string
+		state RuntimeState
+		alive bool
+	}{
+		{name: "stopped", state: state},
+		{name: "direct mode", state: RuntimeState{MixedPort: 17890, DesiredRunning: true, Mode: "direct"}, alive: true},
+		{name: "invalid port", state: RuntimeState{MixedPort: 8080, DesiredRunning: true, Mode: "rule"}, alive: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mihomoSubscriptionProxyURL(tc.state, tc.alive); got != nil {
+				t.Fatalf("proxy URL = %#v, want none", got)
+			}
+		})
+	}
+}
+
 func TestRenderSubscriptionRejectsNoNodes(t *testing.T) {
 	_, _, err := renderSubscription([]byte("proxies: []\n"), RuntimeState{MixedPort: 17890, ControllerPort: 9091}, "secret")
 	if err == nil {
@@ -58,7 +166,7 @@ func TestRenderSubscriptionRejectsNoNodes(t *testing.T) {
 	}
 }
 
-func TestRenderSubscriptionPreservesProviderProxyGroupIcons(t *testing.T) {
+func TestRenderSubscriptionPreservesProxyGroupIcons(t *testing.T) {
 	input := []byte(`proxies:
   - name: Example
     type: socks5
@@ -90,22 +198,20 @@ proxy-groups:
 	if !ok || len(groups) != 3 {
 		t.Fatalf("unexpected proxy groups: %#v", rendered["proxy-groups"])
 	}
-	for i, want := range []struct {
-		name string
-		icon string
-	}{
-		{name: "WiFi", icon: "https://fastly.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/WiFi.png?raw=1"},
-		{name: "Custom", icon: "https://icons.example/custom.png"},
-		{name: "Local", icon: "/custom/local.png"},
-	} {
+	wantIcons := []string{
+		"https://fastly.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/WiFi.png?raw=1",
+		"https://icons.example/custom.png",
+		"/custom/local.png",
+	}
+	for i, name := range []string{"WiFi", "Custom", "Local"} {
 		group, ok := groups[i].(map[string]any)
 		if !ok {
 			t.Fatalf("proxy group %d has unexpected type: %#v", i, groups[i])
 		}
-		if got, _ := group["icon"].(string); got != want.icon {
-			t.Errorf("group %q icon changed: got %q, want %q", want.name, got, want.icon)
+		if got := group["icon"]; got != wantIcons[i] {
+			t.Errorf("group %q icon = %#v, want %#v", name, got, wantIcons[i])
 		}
-		if group["name"] != want.name || group["type"] != "select" {
+		if group["name"] != name || group["type"] != "select" {
 			t.Errorf("group %d fields changed: %#v", i, group)
 		}
 	}
@@ -328,6 +434,10 @@ func TestRenderedHTTPRuleProviderAcceptedByMihomo(t *testing.T) {
     type: socks5
     server: 127.0.0.1
     port: 1080
+proxy-groups:
+  - name: Proxies
+    type: select
+    proxies: [DIRECT, Example]
 rule-providers:
   local:
     type: http
@@ -338,9 +448,9 @@ rule-providers:
     interval: 86400
 rules:
   - RULE-SET,local,DIRECT
-  - MATCH,DIRECT
+  - MATCH,Proxies
 `, server.URL))
-	config, _, err := renderSubscription(input, RuntimeState{MixedPort: 17890, ControllerPort: 9091}, "test-secret")
+	config, _, err := renderSubscription(input, RuntimeState{MixedPort: 17890, ControllerPort: 9091, Mode: "rule"}, "test-secret")
 	if err != nil {
 		t.Fatal(err)
 	}

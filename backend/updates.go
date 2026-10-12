@@ -101,18 +101,26 @@ func (a *API) checkUpdates(w http.ResponseWriter, r *http.Request) {
 			components[index].Status = "no_stable_release"
 			continue
 		}
-		if available, ok := versionIsNewer(components[index].Latest, components[index].Current); ok {
-			components[index].UpdateAvailable = &available
-			components[index].Status = "checked"
-			if available {
-				if index == 1 {
-					a.recordEvent("mihomo_update_available")
-				} else {
-					a.recordEvent("zashboard_update_available")
-				}
-			}
-		} else {
+		relation, ok := versionRelation(components[index].Latest, components[index].Current)
+		if index == 0 {
+			relation, ok = applicationVersionRelation(components[index].Latest, components[index].Current)
+		}
+		if !ok {
 			components[index].Status = "version_unavailable"
+			continue
+		}
+		available := relation > 0
+		components[index].UpdateAvailable = &available
+		components[index].Status = "checked"
+		if relation < 0 {
+			components[index].Status = "local_newer"
+		}
+		if available {
+			if index == 1 {
+				a.recordEvent("mihomo_update_available")
+			} else {
+				a.recordEvent("zashboard_update_available")
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"checked_at": time.Now().UTC(), "components": components})
@@ -173,17 +181,25 @@ func fetchLatestRelease(ctx context.Context, client *http.Client, source string)
 }
 
 func versionIsNewer(latest, current string) (bool, bool) {
-	latestParts, latestOK := versionParts(latest)
+	relation, valid := versionRelation(latest, current)
+	return relation > 0, valid
+}
+
+func versionRelation(candidate, current string) (int, bool) {
+	candidateParts, candidateOK := versionParts(candidate)
 	currentParts, currentOK := versionParts(current)
-	if !latestOK || !currentOK {
-		return false, false
+	if !candidateOK || !currentOK {
+		return 0, false
 	}
-	for index := range latestParts {
-		if latestParts[index] != currentParts[index] {
-			return latestParts[index] > currentParts[index], true
+	for index := range candidateParts {
+		if candidateParts[index] < currentParts[index] {
+			return -1, true
+		}
+		if candidateParts[index] > currentParts[index] {
+			return 1, true
 		}
 	}
-	return false, true
+	return 0, true
 }
 
 func versionParts(version string) ([3]int, bool) {

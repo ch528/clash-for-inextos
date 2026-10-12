@@ -49,7 +49,8 @@ func TestPortableBackupPreviewAndApply(t *testing.T) {
 		Runtime: portableRuntime{
 			MixedPort: mixedPort, ControllerPort: controllerPort, Mode: "direct",
 			AutoStart: true, RestartOnFailure: false, TunStack: "gvisor",
-			TunIPv6:  true,
+			TunIPv4: boolPointer(false), TunIPv6: true, TunMTU: 1400,
+			TunAutoRoute: boolPointer(true), TunStrictRoute: boolPointer(true),
 			LANProxy: LANProxySettings{Enabled: true, Mode: "selected", Clients: []LANClientPolicy{{Name: "TV", IP: "192.168.100.22", MAC: "02:00:00:00:00:22", Action: "proxy"}}},
 			DNS:      DNSSettings{Enabled: true, IPv6: true, Mode: "custom", CustomNameservers: []string{"192.168.100.1"}},
 		},
@@ -113,7 +114,7 @@ func TestPortableBackupPreviewAndApply(t *testing.T) {
 	if state.DesiredRunning || state.TunEnabled || state.LANProxy.Enabled || state.DNS.Enabled || state.TunTestConfirmed || state.Mode != "direct" || state.TunStack != "gvisor" || state.MixedPort != mixedPort || state.ControllerPort != controllerPort || !state.AutoStart || state.RestartOnFailure {
 		t.Fatalf("runtime preferences were not safely restored: %#v", state)
 	}
-	if !state.TunIPv6 || state.LANProxy.Mode != "selected" || len(state.LANProxy.Clients) != 1 || state.DNS.Mode != "custom" || len(state.DNS.CustomNameservers) != 1 {
+	if state.TunIPv4 || !state.TunIPv6 || state.TunMTU != 1400 || !state.TunAutoRoute || !state.TunStrictRoute || state.LANProxy.Mode != "selected" || len(state.LANProxy.Clients) != 1 || state.DNS.Mode != "custom" || len(state.DNS.CustomNameservers) != 1 {
 		t.Fatalf("network preferences were not restored safely: %#v", state)
 	}
 }

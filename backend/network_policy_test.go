@@ -31,7 +31,7 @@ func TestNetworkSettingsValidateSelectedClientsAndAllowLANDNS(t *testing.T) {
 func TestNetworkConfigKeepsLANDirectAndPrivateBypassRules(t *testing.T) {
 	state := RuntimeState{
 		MixedPort: 17890, ControllerPort: 9091, Mode: "rule",
-		TunStack: "system",
+		TunStack: "system", TunIPv4: true, TunMTU: 1500, TunAutoRoute: true,
 		LANProxy: LANProxySettings{
 			Enabled: true, Mode: "all",
 			Clients:     []LANClientPolicy{{IP: "192.168.100.42", MAC: "02:00:00:00:00:42", Action: "direct"}},
@@ -58,7 +58,8 @@ func TestNetworkConfigKeepsLANDirectAndPrivateBypassRules(t *testing.T) {
 func TestNetworkConfigSupportsTUNIPv6AutoRedirectAndCustomBypass(t *testing.T) {
 	state := RuntimeState{
 		MixedPort: 17890, ControllerPort: 9091, Mode: "rule",
-		TunEnabled: true, TunStack: "system", TunIPv6: true, TunAutoRedirect: true,
+		TunEnabled: true, TunStack: "system", TunIPv4: true, TunIPv6: true,
+		TunMTU: 1500, TunAutoRoute: true, TunAutoRedirect: true,
 		LANProxy: LANProxySettings{Mode: "all", BypassCIDRs: []string{"198.51.100.0/24"}},
 	}
 	var config map[string]any
@@ -69,7 +70,7 @@ func TestNetworkConfigSupportsTUNIPv6AutoRedirectAndCustomBypass(t *testing.T) {
 		t.Fatalf("TUN IPv6 preference was not applied: %#v", config["ipv6"])
 	}
 	tun, ok := config["tun"].(map[string]any)
-	if !ok || tun["auto-route"] != true || tun["auto-redirect"] != true || tun["strict-route"] != false || tun["mtu"] != 1500 {
+	if !ok || tun["auto-route"] != true || tun["auto-redirect"] != true || tun["strict-route"] != false || tun["mtu"] != 1500 || tun["iproute2-rule-index"] != 8700 || !reflect.DeepEqual(tun["route-address"], []any{"0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"}) {
 		t.Fatalf("TUN settings do not match the supported defaults: %#v", config["tun"])
 	}
 	if !strings.Contains(minimalConfig(state, "test-secret"), "198.51.100.0/24") {
@@ -78,7 +79,7 @@ func TestNetworkConfigSupportsTUNIPv6AutoRedirectAndCustomBypass(t *testing.T) {
 }
 
 func TestTUNOnlyKeepsRouterDNSAndIPv6Available(t *testing.T) {
-	state := RuntimeState{TunEnabled: true, TunStack: "system", DNS: defaultDNSSettings()}
+	state := RuntimeState{TunEnabled: true, TunStack: "system", TunIPv4: true, TunMTU: 1500, TunAutoRoute: true, DNS: defaultDNSSettings()}
 	var config map[string]any
 	if err := yaml.Unmarshal([]byte(minimalConfig(state, "test-secret")), &config); err != nil {
 		t.Fatal(err)
@@ -89,6 +90,9 @@ func TestTUNOnlyKeepsRouterDNSAndIPv6Available(t *testing.T) {
 	tun, ok := config["tun"].(map[string]any)
 	if !ok || tun["auto-redirect"] != nil {
 		t.Fatalf("TUN-only mode unexpectedly enabled LAN auto-redirect: %#v", config["tun"])
+	}
+	if _, ok := tun["iproute2-rule-index"]; ok {
+		t.Fatal("TUN IPv4-only mode changed the IPv6 policy-rule priority")
 	}
 	if got, want := tun["dns-hijack"], []any{"any:53", "tcp://any:53"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("TUN-only mode did not enable local DNS interception: got %#v want %#v", got, want)
@@ -102,6 +106,49 @@ func TestTUNOnlyKeepsRouterDNSAndIPv6Available(t *testing.T) {
 	dns = networkDNSConfig(state)
 	if dns["ipv6"] != false {
 		t.Fatal("explicitly disabled DNS IPv6 was ignored")
+	}
+}
+
+func TestTUNSettingsControlFamiliesAndRoutes(t *testing.T) {
+	state := RuntimeState{TunEnabled: true, TunStack: "gvisor", TunIPv4: false, TunIPv6: true, TunMTU: 1400, TunAutoRoute: true, TunStrictRoute: true}
+	var config map[string]any
+	if err := yaml.Unmarshal([]byte(minimalConfig(state, "test-secret")), &config); err != nil {
+		t.Fatal(err)
+	}
+	tun := config["tun"].(map[string]any)
+	if tun["mtu"] != 1400 || tun["auto-route"] != true || tun["strict-route"] != true || tun["iproute2-rule-index"] != 8700 || !reflect.DeepEqual(tun["route-address"], []any{"::/1", "8000::/1"}) {
+		t.Fatalf("IPv6-only TUN settings were not applied: %#v", tun)
+	}
+
+	state.TunAutoRoute = false
+	state.TunStrictRoute = false
+	if err := yaml.Unmarshal([]byte(minimalConfig(state, "test-secret")), &config); err != nil {
+		t.Fatal(err)
+	}
+	tun = config["tun"].(map[string]any)
+	if tun["auto-route"] != false || tun["route-address"] != nil || tun["iproute2-rule-index"] != nil {
+		t.Fatalf("disabled Auto Route still emitted route configuration: %#v", tun)
+	}
+}
+
+func TestTUNSettingsRejectInvalidCombinations(t *testing.T) {
+	tests := []struct {
+		name  string
+		state RuntimeState
+	}{
+		{name: "mtu too small", state: RuntimeState{TunMTU: 500}},
+		{name: "mtu too large", state: RuntimeState{TunMTU: 9001}},
+		{name: "ipv6 mtu too small", state: RuntimeState{TunIPv6: true, TunMTU: 1200}},
+		{name: "redirect without route", state: RuntimeState{TunAutoRedirect: true, TunMTU: 1500}},
+		{name: "strict without route", state: RuntimeState{TunStrictRoute: true, TunMTU: 1500}},
+		{name: "no address family", state: RuntimeState{TunEnabled: true, TunIPv4: false, TunIPv6: false, TunMTU: 1500, TunAutoRoute: true}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := normalizeNetworkSettings(&test.state); err == nil {
+				t.Fatal("invalid TUN settings were accepted")
+			}
+		})
 	}
 }
 

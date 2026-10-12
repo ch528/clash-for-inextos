@@ -13,7 +13,7 @@ import (
 )
 
 func testAPI(dir string) *API {
-	state := RuntimeState{MixedPort: 17890, ControllerPort: 9091, BackendPort: 18080}
+	state := RuntimeState{MixedPort: 17890, ControllerPort: 9091, BackendPort: 18080, TunIPv4: true, TunMTU: 1500, TunAutoRoute: true}
 	manager := newProcessManager(filepath.Join(dir, "missing-mihomo"), "", "", dir, "test-secret-long-enough", state)
 	auth := newAuthManager(filepath.Join(dir, "state"))
 	return &API{

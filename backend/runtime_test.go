@@ -46,7 +46,7 @@ func TestMinimalConfigHasLoopbackOnlySafeDefaults(t *testing.T) {
 }
 
 func TestMinimalConfigTUNUsesOnlySupportedFixedOptions(t *testing.T) {
-	text := minimalConfig(RuntimeState{MixedPort: 17890, ControllerPort: 9091, Mode: "rule", TunEnabled: true, TunStack: "gvisor"}, strings.Repeat("b", 64))
+	text := minimalConfig(RuntimeState{MixedPort: 17890, ControllerPort: 9091, Mode: "rule", TunEnabled: true, TunStack: "gvisor", TunIPv4: true, TunMTU: 1500, TunAutoRoute: true}, strings.Repeat("b", 64))
 	for _, required := range []string{"enable: true", "device: mihomo0", "stack: gvisor", "mtu: 1500", "auto-route: true", "auto-detect-interface: true", "strict-route: false"} {
 		if !strings.Contains(text, required) {
 			t.Errorf("TUN config missing %q", required)
@@ -104,6 +104,9 @@ func TestLegacyRuntimeDefaultsToRunningRuleMode(t *testing.T) {
 	if !state.DesiredRunning || !state.AutoStart || !state.RestartOnFailure || state.Mode != "rule" {
 		t.Fatalf("legacy state migrated to desired=%t autostart=%t restart=%t mode=%q", state.DesiredRunning, state.AutoStart, state.RestartOnFailure, state.Mode)
 	}
+	if !state.TunIPv4 || !state.TunIPv6 || state.TunMTU != 1500 || !state.TunAutoRoute || state.TunStrictRoute {
+		t.Fatalf("legacy TUN defaults were not migrated: %#v", state)
+	}
 	state.DesiredRunning = false
 	state.Mode = "global"
 	if err := saveRuntimeState(dir, state); err != nil {
@@ -113,7 +116,7 @@ func TestLegacyRuntimeDefaultsToRunningRuleMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.DesiredRunning || loaded.Mode != "global" {
+	if loaded.DesiredRunning || loaded.Mode != "global" || !loaded.TunIPv4 || !loaded.TunIPv6 || loaded.TunMTU != 1500 || !loaded.TunAutoRoute {
 		t.Fatalf("saved state not restored: running=%t mode=%q", loaded.DesiredRunning, loaded.Mode)
 	}
 }

@@ -11,8 +11,12 @@ const network = ref(null)
 const networkSettings = ref({
   tun_enabled: false,
   tun_stack: 'system',
-  tun_ipv6: false,
+  tun_ipv4: true,
+  tun_ipv6: true,
+  tun_mtu: 1500,
+  tun_auto_route: true,
   tun_auto_redirect: false,
+  tun_strict_route: false,
   lan_proxy: { enabled: false, mode: 'all', clients: [], bypass_cidrs: [] },
   dns: { enabled: false, ipv6: false, mode: 'recommended', custom_nameservers: [] },
 })
@@ -367,8 +371,12 @@ async function loadNetwork() {
     networkSettings.value = {
       tun_enabled: network.value.tun_enabled || false,
       tun_stack: network.value.tun_stack || 'system',
-      tun_ipv6: network.value.tun_ipv6 || false,
+      tun_ipv4: network.value.tun_ipv4 ?? true,
+      tun_ipv6: network.value.tun_ipv6 ?? true,
+      tun_mtu: network.value.tun_mtu || 1500,
+      tun_auto_route: network.value.tun_auto_route ?? true,
       tun_auto_redirect: network.value.tun_auto_redirect || false,
+      tun_strict_route: network.value.tun_strict_route || false,
       lan_proxy: JSON.parse(JSON.stringify(network.value.lan_proxy || { enabled: false, mode: 'all', clients: [], bypass_cidrs: [] })),
       dns: JSON.parse(JSON.stringify(network.value.dns || { enabled: false, ipv6: false, mode: 'recommended', custom_nameservers: [] })),
     }
@@ -389,6 +397,14 @@ function changeLANMode(mode) {
     newLANClient.value.action = 'proxy'
   } else {
     newLANClient.value.action = 'direct'
+  }
+}
+
+function setTunAutoRoute(enabled) {
+  networkSettings.value.tun_auto_route = enabled
+  if (!enabled) {
+    networkSettings.value.tun_auto_redirect = false
+    networkSettings.value.tun_strict_route = false
   }
 }
 
@@ -900,8 +916,12 @@ onUnmounted(() => { window.clearInterval(timer); window.clearInterval(eventTimer
           <div class="network-settings-grid">
             <label class="check-label"><input v-model="networkSettings.tun_enabled" type="checkbox" :disabled="busy || network?.capture_active" />启用 TUN</label>
             <label class="network-field">TUN 栈<select v-model="networkSettings.tun_stack" :disabled="busy || network?.capture_active"><option v-for="item in network?.tun_stacks?.length ? network.tun_stacks : ['system', 'gvisor', 'mixed']" :key="item" :value="item">{{ item }}</option></select></label>
+            <label class="network-field">MTU<input v-model.number="networkSettings.tun_mtu" type="number" :min="networkSettings.tun_ipv6 ? 1280 : 576" max="9000" step="1" :disabled="busy || network?.capture_active" /></label>
+            <label class="check-label"><input v-model="networkSettings.tun_ipv4" type="checkbox" :disabled="busy || network?.capture_active" />TUN IPv4 路由</label>
             <label class="check-label"><input v-model="networkSettings.tun_ipv6" type="checkbox" :disabled="busy || network?.capture_active" />TUN IPv6</label>
-            <label class="check-label"><input :checked="networkSettings.tun_auto_redirect || networkSettings.lan_proxy.enabled || networkSettings.dns.enabled" type="checkbox" :disabled="busy || network?.capture_active || networkSettings.lan_proxy.enabled || networkSettings.dns.enabled" @change="networkSettings.tun_auto_redirect = $event.target.checked" />Auto Redirect</label>
+            <label class="check-label"><input v-model="networkSettings.tun_auto_route" type="checkbox" :disabled="busy || network?.capture_active || networkSettings.lan_proxy.enabled || networkSettings.dns.enabled" @change="setTunAutoRoute($event.target.checked)" />Auto Route</label>
+            <label class="check-label"><input :checked="networkSettings.tun_auto_redirect || networkSettings.lan_proxy.enabled || networkSettings.dns.enabled" type="checkbox" :disabled="busy || network?.capture_active || !networkSettings.tun_auto_route || networkSettings.lan_proxy.enabled || networkSettings.dns.enabled" @change="networkSettings.tun_auto_redirect = $event.target.checked" />Auto Redirect</label>
+            <label class="check-label"><input v-model="networkSettings.tun_strict_route" type="checkbox" :disabled="busy || network?.capture_active || !networkSettings.tun_auto_route" />Strict Route</label>
             <label class="check-label"><input v-model="networkSettings.lan_proxy.enabled" type="checkbox" :disabled="busy || network?.capture_active" />启用 LAN 透明代理</label>
             <label class="network-field">接管范围<select :value="networkSettings.lan_proxy.mode" :disabled="busy || network?.capture_active" @change="changeLANMode($event.target.value)"><option value="all">全部 LAN 设备</option><option value="selected">仅指定设备</option></select></label>
             <label class="check-label"><input v-model="networkSettings.dns.enabled" type="checkbox" :disabled="busy || network?.capture_active" />启用 DNS 接管</label>
@@ -909,7 +929,7 @@ onUnmounted(() => { window.clearInterval(timer); window.clearInterval(eventTimer
             <label class="check-label"><input v-model="networkSettings.dns.ipv6" type="checkbox" :disabled="busy || network?.capture_active" />DNS 允许 IPv6</label>
           </div>
           <div class="network-settings-notes">
-            <p class="network-info-note">TUN：IPv4 启用 · MTU 1500 · Auto Route 启用 · Strict Route 关闭。</p>
+            <p class="network-info-note">路由范围由 IPv4、IPv6 与 Auto Route 控制；MTU 支持 576–9000，启用 IPv6 时至少为 1280。LAN 代理和 DNS 接管需要 Auto Route。</p>
             <p v-if="networkSettings.tun_enabled && !networkSettings.dns.enabled" class="network-info-note">TUN 启用时会为路由器本机启用 Mihomo DNS，保持域名解析正常；“DNS 接管”仍单独控制 LAN 客户端。</p>
             <p v-if="networkSettings.lan_proxy.enabled || networkSettings.dns.enabled" class="network-info-note">LAN 或 DNS 接管需要 Auto Redirect，启用期间会自动保持开启。</p>
             <p v-if="!network?.tun_supported" class="network-info-note network-error-note">网络权限服务不可用，当前不能启用接管功能。</p>
@@ -971,7 +991,7 @@ onUnmounted(() => { window.clearInterval(timer); window.clearInterval(eventTimer
         <div class="page-intro"><h2>更新中心</h2><p>检查官方稳定版发布信息，手动更新 Mihomo。</p></div>
         <article class="panel update-panel">
           <div class="panel-heading"><div><h3>组件版本</h3><p>{{ updateCheck?.checked_at ? `检查于 ${new Date(updateCheck.checked_at).toLocaleString()}` : '尚未检查' }}</p></div><button class="button primary" :disabled="updateCheckBusy" @click="checkUpdates">{{ updateCheckBusy ? '检查中…' : '检查更新' }}</button></div>
-          <div v-if="updateCheck?.components?.length" class="table-wrap"><table><thead><tr><th>组件</th><th>当前</th><th>最新稳定版</th><th>发布日期</th><th>状态</th></tr></thead><tbody><tr v-for="item in updateCheck.components" :key="item.id"><td>{{ item.name }}</td><td>{{ item.current || '—' }}</td><td>{{ item.latest || '—' }}</td><td>{{ item.release_date ? new Date(item.release_date).toLocaleDateString() : '—' }}</td><td><span class="record-status">{{ item.update_available === true ? '有更新' : item.update_available === false ? '已是最新' : item.status === 'source_unconfigured' ? '未配置发布源' : item.status === 'release_invalid' ? '发布包无效' : item.status === 'not_in_use' ? '当前未使用' : item.status === 'source_unavailable' ? '发布源暂不可用' : item.status === 'in_use_missing' ? 'Geo 数据缺失' : item.status === 'installed_version_untracked' ? '版本未跟踪' : item.status === 'usage_unknown' ? '使用状态未知' : item.status === 'version_unavailable' ? '无法比较版本' : item.status === 'no_stable_release' ? '没有稳定版' : '未检查' }}</span></td></tr></tbody></table></div>
+          <div v-if="updateCheck?.components?.length" class="table-wrap"><table><thead><tr><th>组件</th><th>当前</th><th>最新稳定版</th><th>发布日期</th><th>状态</th></tr></thead><tbody><tr v-for="item in updateCheck.components" :key="item.id"><td>{{ item.name }}</td><td>{{ item.current || '—' }}</td><td>{{ item.latest || '—' }}</td><td>{{ item.release_date ? new Date(item.release_date).toLocaleDateString() : '—' }}</td><td><span class="record-status">{{ item.update_available === true ? '有更新' : item.status === 'local_newer' ? '本地版本较新' : item.update_available === false ? '已是最新' : item.status === 'source_unconfigured' ? '未配置发布源' : item.status === 'release_invalid' ? '发布包无效' : item.status === 'not_in_use' ? '当前未使用' : item.status === 'source_unavailable' ? '发布源暂不可用' : item.status === 'in_use_missing' ? 'Geo 数据缺失' : item.status === 'installed_version_untracked' ? '版本未跟踪' : item.status === 'usage_unknown' ? '使用状态未知' : item.status === 'version_unavailable' ? '无法比较版本' : item.status === 'no_stable_release' ? '没有稳定版' : '未检查' }}</span></td></tr></tbody></table></div>
           <div class="update-actions-grid">
             <div class="row-actions update-action-row"><button class="button primary" :disabled="appUpdateBusy || updateCheckBusy || network?.capture_active || !updateCheck?.components?.some(item => item.id === 'app' && item.update_available === true)" @click="updateApplication">{{ appUpdateBusy ? '更新中…' : '更新应用' }}</button><p v-if="appUpdateStatus?.state !== 'succeeded' && (appUpdateMessage || appUpdateStatus?.message)" role="status">{{ appUpdateMessage || appUpdateStatus?.message }}</p></div>
             <div class="row-actions update-action-row"><button class="button primary" :disabled="mihomoUpdateBusy || updateCheckBusy || !updateCheck?.components?.some(item => item.id === 'mihomo' && item.update_available === true)" @click="updateMihomo">{{ mihomoUpdateBusy ? '更新中…' : '更新 Mihomo' }}</button><p v-if="mihomoUpdateMessage" role="status">{{ mihomoUpdateMessage }}</p></div>
@@ -1020,7 +1040,7 @@ onUnmounted(() => { window.clearInterval(timer); window.clearInterval(eventTimer
           <p class="empty-inline backup-note">管理员密码哈希、Controller secret 和 TLS 私钥不会导出。恢复预览通过后，点击“应用恢复”；应用时要求 Mihomo 已停止，并会保持 TUN、LAN 代理和 DNS 接管关闭。</p>
           <div v-if="backupPreview" class="panel backup-preview system-panel">
             <div class="panel-heading"><div><h4>恢复预览</h4><p>当前订阅将被备份中的 {{ backupPreview.subscription_count }} 条记录替换。</p></div></div>
-            <dl><div><dt>当前订阅</dt><dd>{{ backupPreview.current_subscription || '未选择' }}</dd></div><div><dt>节点总数</dt><dd>{{ backupPreview.total_nodes }}</dd></div><div><dt>Mihomo 模式</dt><dd>{{ backupPreview.mode }}</dd></div><div><dt>TUN 栈偏好</dt><dd>{{ backupPreview.tun_stack }}</dd></div><div><dt>设备启动自动恢复</dt><dd>{{ backupPreview.auto_start ? '开启' : '关闭' }}</dd></div><div><dt>异常退出自动恢复</dt><dd>{{ backupPreview.restart_on_failure ? '开启' : '关闭' }}</dd></div><div><dt>浏览器外观</dt><dd>{{ backupPreview.appearance?.theme || '不变' }} · {{ backupPreview.appearance?.density || '不变' }}</dd></div><div><dt>网络状态</dt><dd>Mihomo 停止 · TUN、LAN 代理与 DNS 接管关闭</dd></div></dl>
+            <dl><div><dt>当前订阅</dt><dd>{{ backupPreview.current_subscription || '未选择' }}</dd></div><div><dt>节点总数</dt><dd>{{ backupPreview.total_nodes }}</dd></div><div><dt>Mihomo 模式</dt><dd>{{ backupPreview.mode }}</dd></div><div><dt>TUN 栈偏好</dt><dd>{{ backupPreview.tun_stack }}</dd></div><div><dt>TUN 参数</dt><dd>{{ backupPreview.tun_ipv4 ? 'IPv4' : 'IPv4 关闭' }} · {{ backupPreview.tun_ipv6 ? 'IPv6' : 'IPv6 关闭' }} · MTU {{ backupPreview.tun_mtu }} · Auto Route {{ backupPreview.tun_auto_route ? '开' : '关' }} · Auto Redirect {{ backupPreview.tun_auto_redirect ? '开' : '关' }} · Strict Route {{ backupPreview.tun_strict_route ? '开' : '关' }}</dd></div><div><dt>设备启动自动恢复</dt><dd>{{ backupPreview.auto_start ? '开启' : '关闭' }}</dd></div><div><dt>异常退出自动恢复</dt><dd>{{ backupPreview.restart_on_failure ? '开启' : '关闭' }}</dd></div><div><dt>浏览器外观</dt><dd>{{ backupPreview.appearance?.theme || '不变' }} · {{ backupPreview.appearance?.density || '不变' }}</dd></div><div><dt>网络状态</dt><dd>Mihomo 停止 · TUN、LAN 代理与 DNS 接管关闭</dd></div></dl>
             <div class="row-actions"><button class="button subtle" :disabled="busy" @click="cancelBackupPreview">取消</button><button class="button primary" :disabled="busy" @click="applyBackup">应用恢复</button></div>
           </div>
         </article>

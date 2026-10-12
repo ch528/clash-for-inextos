@@ -14,9 +14,9 @@ import (
 )
 
 func appReleaseFixture(version string) latestRelease {
-	patch := strings.TrimPrefix(version, "1.0.")
 	tag := "v" + version
-	name := "inextos-clash_1.0.0-" + patch + "_arm64.deb"
+	packageVersion, _ := debianPackageVersion(version)
+	name := "inextos-clash_" + packageVersion + "_arm64.deb"
 	return latestRelease{
 		TagName: tag,
 		Assets: []releaseAsset{{
@@ -46,15 +46,43 @@ func TestApplicationReleaseAssetRequiresExactPackageAndDigest(t *testing.T) {
 			t.Fatalf("invalid release accepted: %+v", candidate)
 		}
 	}
+
+	finalAsset, finalVersion, err := applicationReleaseAsset(appReleaseFixture("1.0.0"))
+	if err != nil || finalVersion != "1.0.0" || finalAsset.Name != "inextos-clash_1.0.0_arm64.deb" {
+		t.Fatalf("formal release = (%+v, %q, %v)", finalAsset, finalVersion, err)
+	}
 }
 
 func TestDebianPackageVersionUsesAboutVersionRule(t *testing.T) {
 	if got, ok := debianPackageVersion("1.0.35"); !ok || got != "1.0.0-35" {
 		t.Fatalf("package version = (%q, %v)", got, ok)
 	}
-	for _, version := range []string{"1.0.0", "1.0.035", "1.1.35", "1.0.35-rc1"} {
+	if got, ok := debianPackageVersion("1.0.0"); !ok || got != "1.0.0" {
+		t.Fatalf("formal package version = (%q, %v)", got, ok)
+	}
+	for _, version := range []string{"1.0.035", "1.1.35", "1.0.35-rc1"} {
 		if _, ok := debianPackageVersion(version); ok {
 			t.Errorf("invalid app version %q accepted", version)
+		}
+	}
+}
+
+func TestApplicationVersionRelationOrdersFormalReleaseAfterDevelopment(t *testing.T) {
+	for _, test := range []struct {
+		candidate string
+		current   string
+		want      int
+		valid     bool
+	}{
+		{candidate: "1.0.0", current: "1.0.45", want: 1, valid: true},
+		{candidate: "1.0.0", current: "1.0.0", want: 0, valid: true},
+		{candidate: "1.0.46", current: "1.0.0", want: 1, valid: true},
+		{candidate: "1.0.44", current: "1.0.45", want: -1, valid: true},
+		{candidate: "v1.0.0", current: "1.0.45", valid: false},
+	} {
+		got, valid := applicationVersionRelation(test.candidate, test.current)
+		if got != test.want || valid != test.valid {
+			t.Errorf("applicationVersionRelation(%q, %q) = (%d, %v), want (%d, %v)", test.candidate, test.current, got, valid, test.want, test.valid)
 		}
 	}
 }
@@ -64,10 +92,15 @@ func TestAppPackageMetadataMatchesReleaseVersion(t *testing.T) {
 	if !appPackageMetadataMatches(valid, "1.0.35") {
 		t.Fatal("matching ARM64 package metadata was rejected")
 	}
+	final := "Package: inextos-clash\nVersion: 1.0.0\nArchitecture: arm64\n"
+	if !appPackageMetadataMatches(final, "1.0.0") {
+		t.Fatal("matching formal ARM64 package metadata was rejected")
+	}
 	for _, output := range []string{
 		"Package: another-package\nVersion: 1.0.0-35\nArchitecture: arm64\n",
 		"Package: inextos-clash\nVersion: 1.0.0-34\nArchitecture: arm64\n",
 		"Package: inextos-clash\nVersion: 1.0.0-35\nArchitecture: amd64\n",
+		"Package: inextos-clash\nVersion: 1.0.0-45\nArchitecture: arm64\n",
 	} {
 		if appPackageMetadataMatches(output, "1.0.35") {
 			t.Errorf("mismatched package metadata accepted: %q", output)
@@ -150,5 +183,48 @@ func TestApplicationUpdateStatusRoundTripAndSafePath(t *testing.T) {
 	}
 	if err := writeApplicationUpdateStatus(symlink, want); err == nil {
 		t.Fatal("symlink update directory was accepted")
+	}
+}
+
+func TestPreparePreviousApplicationPackageUsesSafeStagedPackage(t *testing.T) {
+	directory := t.TempDir()
+	staged := filepath.Join(directory, "rollback-source.deb")
+	previous := filepath.Join(directory, "previous.deb")
+	data := []byte("locally staged development package")
+	if err := os.WriteFile(staged, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := preparePreviousApplicationPackage(context.Background(), nil, "1.0.45", directory, previous); err != nil {
+		t.Fatalf("prepare staged rollback package: %v", err)
+	}
+	got, err := os.ReadFile(previous)
+	if err != nil || string(got) != string(data) {
+		t.Fatalf("staged rollback bytes = %q, %v", got, err)
+	}
+
+	if err := os.Remove(previous); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(staged, 0660); err != nil {
+		t.Fatal(err)
+	}
+	if err := preparePreviousApplicationPackage(context.Background(), nil, "1.0.45", directory, previous); err == nil {
+		t.Fatal("group-writable staged rollback package was accepted")
+	}
+}
+
+func TestPreparePreviousApplicationPackageRejectsStagedSymlink(t *testing.T) {
+	directory := t.TempDir()
+	staged := filepath.Join(directory, "rollback-source.deb")
+	previous := filepath.Join(directory, "previous.deb")
+	target := filepath.Join(directory, "target.deb")
+	if err := os.WriteFile(target, []byte("package"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, staged); err != nil {
+		t.Fatal(err)
+	}
+	if err := preparePreviousApplicationPackage(context.Background(), nil, "1.0.45", directory, previous); err == nil {
+		t.Fatal("symlinked staged rollback package was accepted")
 	}
 }

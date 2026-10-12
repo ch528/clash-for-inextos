@@ -167,8 +167,10 @@ func (a *API) networkStatus(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"tun_enabled": state.TunEnabled, "capture_active": networkCaptureActive(state),
-			"tun_stack": state.TunStack, "tun_ipv6": state.TunIPv6,
-			"tun_auto_redirect": state.TunAutoRedirect, "desired_running": state.DesiredRunning,
+			"tun_stack": state.TunStack, "tun_ipv4": state.TunIPv4, "tun_ipv6": state.TunIPv6,
+			"tun_mtu": state.TunMTU, "tun_auto_route": state.TunAutoRoute,
+			"tun_auto_redirect": state.TunAutoRedirect, "tun_strict_route": state.TunStrictRoute,
+			"desired_running":    state.DesiredRunning,
 			"tun_test_confirmed": state.TunTestConfirmed, "tun_supported": false,
 			"helper_status": err.Error(), "tun_stacks": []string{},
 			"lan_proxy": state.LANProxy, "dns": state.DNS,
@@ -178,8 +180,10 @@ func (a *API) networkStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tun_enabled": state.TunEnabled, "capture_active": networkCaptureActive(state),
-		"tun_stack": state.TunStack, "tun_ipv6": state.TunIPv6,
-		"tun_auto_redirect": state.TunAutoRedirect, "desired_running": state.DesiredRunning,
+		"tun_stack": state.TunStack, "tun_ipv4": state.TunIPv4, "tun_ipv6": state.TunIPv6,
+		"tun_mtu": state.TunMTU, "tun_auto_route": state.TunAutoRoute,
+		"tun_auto_redirect": state.TunAutoRedirect, "tun_strict_route": state.TunStrictRoute,
+		"desired_running":    state.DesiredRunning,
 		"tun_test_confirmed": response.TunTestConfirmed, "tun_supported": response.Supported,
 		"helper_status": response.Status, "tun_stacks": response.Stacks,
 		"lan_proxy": state.LANProxy, "dns": state.DNS,
@@ -217,8 +221,12 @@ func (a *API) setNetworkSettings(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		TunEnabled      bool             `json:"tun_enabled"`
 		TunStack        string           `json:"tun_stack"`
+		TunIPv4         *bool            `json:"tun_ipv4"`
 		TunIPv6         bool             `json:"tun_ipv6"`
+		TunMTU          *int             `json:"tun_mtu"`
+		TunAutoRoute    *bool            `json:"tun_auto_route"`
 		TunAutoRedirect bool             `json:"tun_auto_redirect"`
+		TunStrictRoute  *bool            `json:"tun_strict_route"`
 		LANProxy        LANProxySettings `json:"lan_proxy"`
 		DNS             DNSSettings      `json:"dns"`
 	}
@@ -232,8 +240,20 @@ func (a *API) setNetworkSettings(w http.ResponseWriter, r *http.Request) {
 	state := a.manager.RuntimeConfig()
 	state.TunEnabled = input.TunEnabled
 	state.TunStack = input.TunStack
+	if input.TunIPv4 != nil {
+		state.TunIPv4 = *input.TunIPv4
+	}
 	state.TunIPv6 = input.TunIPv6
+	if input.TunMTU != nil {
+		state.TunMTU = *input.TunMTU
+	}
+	if input.TunAutoRoute != nil {
+		state.TunAutoRoute = *input.TunAutoRoute
+	}
 	state.TunAutoRedirect = input.TunAutoRedirect
+	if input.TunStrictRoute != nil {
+		state.TunStrictRoute = *input.TunStrictRoute
+	}
 	state.LANProxy = input.LANProxy
 	state.DNS = input.DNS
 	if err := normalizeNetworkSettings(&state); err != nil {

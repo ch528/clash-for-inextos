@@ -41,8 +41,12 @@ type portableRuntime struct {
 	AutoStart        bool             `json:"auto_start"`
 	RestartOnFailure bool             `json:"restart_on_failure"`
 	TunStack         string           `json:"tun_stack"`
+	TunIPv4          *bool            `json:"tun_ipv4,omitempty"`
 	TunIPv6          bool             `json:"tun_ipv6,omitempty"`
+	TunMTU           int              `json:"tun_mtu,omitempty"`
+	TunAutoRoute     *bool            `json:"tun_auto_route,omitempty"`
 	TunAutoRedirect  bool             `json:"tun_auto_redirect,omitempty"`
+	TunStrictRoute   *bool            `json:"tun_strict_route,omitempty"`
 	LANProxy         LANProxySettings `json:"lan_proxy,omitempty"`
 	DNS              DNSSettings      `json:"dns,omitempty"`
 }
@@ -81,6 +85,12 @@ type portableRestorePreview struct {
 	TotalNodes        int                `json:"total_nodes"`
 	Mode              string             `json:"mode"`
 	TunStack          string             `json:"tun_stack"`
+	TunIPv4           bool               `json:"tun_ipv4"`
+	TunIPv6           bool               `json:"tun_ipv6"`
+	TunMTU            int                `json:"tun_mtu"`
+	TunAutoRoute      bool               `json:"tun_auto_route"`
+	TunAutoRedirect   bool               `json:"tun_auto_redirect"`
+	TunStrictRoute    bool               `json:"tun_strict_route"`
 	AutoStart         bool               `json:"auto_start"`
 	RestartOnFailure  bool               `json:"restart_on_failure"`
 	Appearance        portableAppearance `json:"appearance"`
@@ -103,7 +113,9 @@ func (a *API) exportBackup(w http.ResponseWriter, r *http.Request) {
 			MixedPort: state.MixedPort, ControllerPort: state.ControllerPort,
 			Mode: state.Mode, AutoStart: state.AutoStart,
 			RestartOnFailure: state.RestartOnFailure, TunStack: state.TunStack,
-			TunIPv6: state.TunIPv6, TunAutoRedirect: state.TunAutoRedirect,
+			TunIPv4: boolPointer(state.TunIPv4), TunIPv6: state.TunIPv6,
+			TunMTU: state.TunMTU, TunAutoRoute: boolPointer(state.TunAutoRoute),
+			TunAutoRedirect: state.TunAutoRedirect, TunStrictRoute: boolPointer(state.TunStrictRoute),
 			LANProxy: portableLANProxySettings(state.LANProxy), DNS: portableDNSSettings(state.DNS),
 		},
 		Subscriptions: []portableSubscription{},
@@ -304,8 +316,23 @@ func (a *API) validatePortableBackup(ctx context.Context, bundle portableBackup)
 	state.AutoStart = bundle.Runtime.AutoStart
 	state.RestartOnFailure = bundle.Runtime.RestartOnFailure
 	state.TunStack = bundle.Runtime.TunStack
-	state.TunIPv6 = bundle.Runtime.TunIPv6
+	if bundle.Runtime.TunIPv4 == nil {
+		// Legacy backups did not control TUN routes by family; preserve the old dual-stack behavior.
+		state.TunIPv4, state.TunIPv6 = true, true
+	} else {
+		state.TunIPv4 = *bundle.Runtime.TunIPv4
+		state.TunIPv6 = bundle.Runtime.TunIPv6
+	}
+	state.TunMTU = bundle.Runtime.TunMTU
+	if state.TunMTU == 0 {
+		state.TunMTU = 1500
+	}
+	state.TunAutoRoute = true
+	if bundle.Runtime.TunAutoRoute != nil {
+		state.TunAutoRoute = *bundle.Runtime.TunAutoRoute
+	}
 	state.TunAutoRedirect = bundle.Runtime.TunAutoRedirect
+	state.TunStrictRoute = bundle.Runtime.TunStrictRoute != nil && *bundle.Runtime.TunStrictRoute
 	state.LANProxy = bundle.Runtime.LANProxy
 	state.LANProxy.Enabled = false
 	state.DNS = bundle.Runtime.DNS
@@ -388,6 +415,10 @@ func (a *API) validatePortableBackup(ctx context.Context, bundle portableBackup)
 	return plan, nil
 }
 
+func boolPointer(value bool) *bool {
+	return &value
+}
+
 func sanitizePortableSubscription(body []byte) ([]byte, error) {
 	var source map[string]any
 	if err := yaml.Unmarshal(body, &source); err != nil {
@@ -406,7 +437,10 @@ func (plan portableRestorePlan) preview() portableRestorePreview {
 	return portableRestorePreview{
 		SubscriptionCount: len(plan.records), CurrentName: plan.currentName,
 		TotalNodes: plan.totalNodes, Mode: plan.state.Mode, TunStack: plan.state.TunStack,
-		AutoStart: plan.state.AutoStart, RestartOnFailure: plan.state.RestartOnFailure,
+		TunIPv4: plan.state.TunIPv4, TunIPv6: plan.state.TunIPv6, TunMTU: plan.state.TunMTU,
+		TunAutoRoute: plan.state.TunAutoRoute, TunAutoRedirect: plan.state.TunAutoRedirect,
+		TunStrictRoute: plan.state.TunStrictRoute,
+		AutoStart:      plan.state.AutoStart, RestartOnFailure: plan.state.RestartOnFailure,
 		Appearance: plan.appearance, MihomoWillStayOff: true, TunWillStayOff: true,
 	}
 }

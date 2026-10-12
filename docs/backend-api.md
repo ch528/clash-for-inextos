@@ -48,11 +48,20 @@ returned to the browser. State changes require a matching same-origin request.
 | POST | `/api/updates/zashboard` | Downloads the official `dist.zip`, verifies size and SHA-256, extracts into a private candidate directory, validates entry resources/notices, and activates through an atomic version record. |
 | POST | `/api/updates/zashboard/rollback` | Validates and reactivates the retained previous panel while preserving the version being replaced. |
 
+## Network settings
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| GET | `/api/network/status` | Returns saved TUN options, capture/rollback status, helper capability, LAN clients, proxy scope, and DNS preferences. |
+| POST | `/api/network/settings` | Saves TUN stack, MTU, IPv4/IPv6 routes, Auto Route, Auto Redirect, Strict Route, LAN proxy, bypass and DNS preferences. Active capture must be turned off before changing settings. |
+| POST | `/api/network/confirm`, `/api/network/restore` | Confirms a successful protected capture test or disables application-owned capture and invokes recovery. |
+
 The check uses fixed GitHub API endpoints and public-address validation for
 requests and redirects. It reports installed and latest versions and release
 dates where comparison is supported. The Clash for iNextOS release source is
 `ch528/clash-for-inextos`; the package updater checks the stable release tag and
-exact `inextos-clash_1.0.0-N_arm64.deb` asset. Downloads try GitHub release
+exact ARM64 asset (`inextos-clash_1.0.0_arm64.deb` for the formal release,
+`inextos-clash_1.0.0-N_arm64.deb` for a development revision). Downloads try GitHub release
 mirrors before the direct asset URL, and every route must match the SHA-256
 digest returned by the GitHub release API. Geo usage is detected from active
 rules and local data files so unused datasets are not presented as installed.
@@ -63,8 +72,9 @@ Responses report `updated`, `rolled_back` and `running`; failures return HTTP
 503 with `error` and `result`. Helper requests accept only fixed actions, never
 caller-selected URLs, paths or executable bytes. The application updater runs
 in a separate root-owned systemd unit so replacing/restarting the Backend does
-not kill the installer. It uses `DEBIAN_FRONTEND=noninteractive` and
-`--force-confold`, waits for the expected Debian version and local health
+not kill the installer. It uses `DEBIAN_FRONTEND=noninteractive`,
+`--force-confold`, and `--force-downgrade` for the exact package already
+validated against the release metadata, waits for the expected Debian version and local health
 endpoint, and restores the prior package if that check fails. Automatic
 rollback is covered by a local test. Live device acceptance first moved the
 ARM64 installation from `1.0.0-35` to `1.0.0-36`; the published package digest
