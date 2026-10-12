@@ -60,14 +60,14 @@ func TestDebianPackageVersionUsesAboutVersionRule(t *testing.T) {
 }
 
 func TestAppPackageMetadataMatchesReleaseVersion(t *testing.T) {
-	valid := "inextos-clash\n1.0.0-35\narm64\n"
+	valid := "Package: inextos-clash\nVersion: 1.0.0-35\nArchitecture: arm64\n"
 	if !appPackageMetadataMatches(valid, "1.0.35") {
 		t.Fatal("matching ARM64 package metadata was rejected")
 	}
 	for _, output := range []string{
-		"another-package\n1.0.0-35\narm64\n",
-		"inextos-clash\n1.0.0-34\narm64\n",
-		"inextos-clash\n1.0.0-35\namd64\n",
+		"Package: another-package\nVersion: 1.0.0-35\nArchitecture: arm64\n",
+		"Package: inextos-clash\nVersion: 1.0.0-34\nArchitecture: arm64\n",
+		"Package: inextos-clash\nVersion: 1.0.0-35\nArchitecture: amd64\n",
 	} {
 		if appPackageMetadataMatches(output, "1.0.35") {
 			t.Errorf("mismatched package metadata accepted: %q", output)

@@ -163,7 +163,16 @@ func appPackageMetadataMatches(output, appVersion string) bool {
 		return false
 	}
 	fields := strings.Split(strings.TrimSpace(output), "\n")
-	return len(fields) == 3 && strings.TrimSpace(fields[0]) == "inextos-clash" && strings.TrimSpace(fields[1]) == wantVersion && strings.TrimSpace(fields[2]) == "arm64"
+	want := []string{"Package: inextos-clash", "Version: " + wantVersion, "Architecture: arm64"}
+	if len(fields) != len(want) {
+		return false
+	}
+	for index := range fields {
+		if strings.TrimSpace(fields[index]) != want[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func verifyAppPackage(ctx context.Context, path, appVersion string) error {
