@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,6 +40,54 @@ func TestAPIRequiresAuthenticationAndKeepsControllerSecretPrivate(t *testing.T) 
 		}
 		if strings.Contains(recorder.Body.String(), secret) {
 			t.Fatalf("secret leaked from %s: %s", path, recorder.Body.String())
+		}
+	}
+}
+
+func TestSecurityPolicyUsesAuthenticatedDashboardIconOriginsFromRuntimeConfig(t *testing.T) {
+	api := testAPI(t.TempDir())
+	api.manager.configFile = filepath.Join(t.TempDir(), "mihomo.yaml")
+	config := `proxy-groups:
+  - name: Valid
+    icon: https://fastly.jsdelivr.net/gh/example/icon.png
+  - name: PinnedPort
+    icon: https://203.0.113.8:25680/icon.png
+  - name: Duplicate
+    icon: https://fastly.jsdelivr.net/another/icon.png
+  - name: Insecure
+    icon: http://images.example/icon.png
+  - name: Credentials
+    icon: https://user:pass@evil.example/icon.png
+  - name: InvalidPort
+    icon: https://evil.example:65536/icon.png
+`
+	if err := os.WriteFile(api.manager.configFile, []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	request := apiRequest(http.MethodGet, "/dashboard/", "", "http://127.0.0.1:18080")
+	recorder := httptest.NewRecorder()
+	api.securityMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })).ServeHTTP(recorder, request)
+	policy := recorder.Header().Get("Content-Security-Policy")
+	if strings.Contains(policy, "fastly.jsdelivr.net") || strings.Contains(policy, "203.0.113.8") {
+		t.Fatalf("unauthenticated dashboard exposed icon origins: %s", policy)
+	}
+
+	token := "unit-test-session"
+	api.auth.sessions[sessionDigest(token)] = time.Now().Add(sessionLifetime)
+	request = apiRequest(http.MethodGet, "/dashboard/", "", "http://127.0.0.1:18080")
+	request.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	recorder = httptest.NewRecorder()
+	api.securityMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })).ServeHTTP(recorder, request)
+	policy = recorder.Header().Get("Content-Security-Policy")
+	for _, source := range []string{"https://fastly.jsdelivr.net", "https://203.0.113.8:25680"} {
+		if !strings.Contains(policy, source) {
+			t.Errorf("authenticated dashboard CSP is missing %q: %s", source, policy)
+		}
+	}
+	for _, forbidden := range []string{"http://images.example", "evil.example", "https:;", "http:;", "*"} {
+		if strings.Contains(policy, forbidden) {
+			t.Errorf("authenticated dashboard CSP includes forbidden source %q: %s", forbidden, policy)
 		}
 	}
 }

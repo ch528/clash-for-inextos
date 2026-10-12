@@ -62,7 +62,7 @@ test -s "$ZASHBOARD_STAGE/dist/THIRD_PARTY_NOTICES.md"
 cp -a "$ZASHBOARD_STAGE/dist/." "$STAGE/opt/inextos-clash/dashboard/"
 
 cp "$ROOT/web/dist/index.html" "$STAGE/opt/inextos-clash/web/index.html"
-cp "$ROOT/web/dist"/*.png "$STAGE/opt/inextos-clash/web/"
+cp "$ROOT/web/dist"/icon-*.png "$STAGE/opt/inextos-clash/web/"
 mkdir -p "$STAGE/opt/inextos-clash/web/assets"
 while IFS= read -r asset; do
   cp "$ROOT/web/dist/${asset#/}" "$STAGE/opt/inextos-clash/web/$asset"

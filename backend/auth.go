@@ -572,7 +572,11 @@ func (a *API) securityMiddleware(next http.Handler) http.Handler {
 		if len(ancestors) == 0 {
 			ancestors = []string{"'self'"}
 		}
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'; frame-ancestors "+strings.Join(ancestors, " "))
+		imageSources := []string{"'self'", "data:"}
+		if (r.URL.Path == "/dashboard" || strings.HasPrefix(r.URL.Path, "/dashboard/")) && a.auth != nil && a.auth.authenticated(r) && a.manager != nil {
+			imageSources = append(imageSources, dashboardIconSources(a.manager.configFile)...)
+		}
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; img-src "+strings.Join(imageSources, " ")+"; style-src 'self'; frame-ancestors "+strings.Join(ancestors, " "))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "camera=(), geolocation=(), microphone=()")

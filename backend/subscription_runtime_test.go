@@ -58,7 +58,7 @@ func TestRenderSubscriptionRejectsNoNodes(t *testing.T) {
 	}
 }
 
-func TestRenderSubscriptionUsesPackagedProxyIcons(t *testing.T) {
+func TestRenderSubscriptionPreservesProviderProxyGroupIcons(t *testing.T) {
 	input := []byte(`proxies:
   - name: Example
     type: socks5
@@ -90,22 +90,27 @@ proxy-groups:
 	if !ok || len(groups) != 3 {
 		t.Fatalf("unexpected proxy groups: %#v", rendered["proxy-groups"])
 	}
-	icon := func(index int) string {
-		group, ok := groups[index].(map[string]any)
+	for i, want := range []struct {
+		name string
+		icon string
+	}{
+		{name: "WiFi", icon: "https://fastly.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/WiFi.png?raw=1"},
+		{name: "Custom", icon: "https://icons.example/custom.png"},
+		{name: "Local", icon: "/custom/local.png"},
+	} {
+		group, ok := groups[i].(map[string]any)
 		if !ok {
-			t.Fatalf("proxy group %d has unexpected type: %#v", index, groups[index])
+			t.Fatalf("proxy group %d has unexpected type: %#v", i, groups[i])
 		}
-		value, _ := group["icon"].(string)
-		return value
+		if got, _ := group["icon"].(string); got != want.icon {
+			t.Errorf("group %q icon changed: got %q, want %q", want.name, got, want.icon)
+		}
+		if group["name"] != want.name || group["type"] != "select" {
+			t.Errorf("group %d fields changed: %#v", i, group)
+		}
 	}
-	if got := icon(0); got != "/WiFi.png" {
-		t.Errorf("packaged icon URL was not rewritten: %q", got)
-	}
-	if got := icon(1); got != "https://icons.example/custom.png" {
-		t.Errorf("unknown remote icon was changed: %q", got)
-	}
-	if got := icon(2); got != "/custom/local.png" {
-		t.Errorf("local icon was changed: %q", got)
+	if !strings.Contains(string(input), "https://fastly.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/WiFi.png?raw=1") {
+		t.Fatal("rendering changed the original subscription body")
 	}
 }
 
